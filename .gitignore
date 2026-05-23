@@ -1,0 +1,8 @@
+﻿# Claude / AI tool folders
+.agents/
+.claude/
+skills-lock.json
+
+# Logs & temp
+*.log
+*.tmp
