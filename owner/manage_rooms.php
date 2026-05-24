@@ -9,8 +9,25 @@ if (!isset($_SESSION['account_id']) || $_SESSION['role'] !== 'hotel_owner') {
 $hotelId = (int) ($_SESSION['hotel_id'] ?? 0);
 if (!$hotelId) { header("Location: /auth/logout.php"); exit(); }
 
-// Handle room status toggle
+// Handle room edit
 $msg = '';
+if (isset($_POST['edit_room'])) {
+    $roomId  = (int) $_POST['room_id'];
+    $type    = $conn->real_escape_string(trim($_POST['room_type']        ?? ''));
+    $price   = max(0, (float) $_POST['room_price']);
+    $cap     = max(1, (int) $_POST['room_capacity']);
+    $desc    = $conn->real_escape_string(trim($_POST['room_description'] ?? ''));
+    $check   = $conn->query("SELECT Room_Id FROM Rooms WHERE Room_Id=$roomId AND Room_HotelId=$hotelId LIMIT 1");
+    if ($check->num_rows > 0 && $type !== '') {
+        $conn->query("UPDATE Rooms SET Room_Type='$type', Room_Price=$price, Room_Capacity=$cap, Room_Description='$desc' WHERE Room_Id=$roomId");
+        $msg = 'Room updated successfully.';
+    } else {
+        $msg = 'Invalid room or missing name.';
+    }
+    header("Location: manage_rooms.php?msg=" . urlencode($msg)); exit();
+}
+
+// Handle room status toggle
 if (isset($_POST['toggle_status'])) {
     $roomId    = (int) $_POST['room_id'];
     $newStatus = $_POST['new_status'] ?? '';
@@ -86,7 +103,7 @@ include "../layout/layout.php";
         <!-- Info notice -->
         <div style="background:#EFF6FF; border:1px solid #BFDBFE; border-radius:8px; padding:12px 16px; font-size:13px; color:#1E40AF; margin-bottom:24px; display:flex; align-items:center; gap:9px;">
             <i class="bi bi-info-circle-fill" style="flex-shrink:0;"></i>
-            Room types and prices are managed by the RedDoorz admin team. You can update room availability status and block specific dates below.
+            You can edit room details, update availability status, and block specific dates for your rooms below.
         </div>
 
         <?php if ($rooms->num_rows === 0): ?>
@@ -114,6 +131,15 @@ include "../layout/layout.php";
                 </div>
                 <div style="display:flex; align-items:center; gap:12px;">
                     <?= $statusBadge ?>
+                    <button type="button" class="btn-rd-outline" style="font-size:12px; padding:5px 14px;"
+                            data-bs-toggle="modal" data-bs-target="#editRoomModal"
+                            data-room-id="<?= $room['Room_Id'] ?>"
+                            data-room-type="<?= htmlspecialchars($room['Room_Type'], ENT_QUOTES) ?>"
+                            data-room-price="<?= $room['Room_Price'] ?>"
+                            data-room-capacity="<?= $room['Room_Capacity'] ?>"
+                            data-room-description="<?= htmlspecialchars($room['Room_Description'] ?? '', ENT_QUOTES) ?>">
+                        <i class="bi bi-pencil me-1"></i>Edit
+                    </button>
                     <button type="button" class="btn-rd-outline" style="font-size:12px; padding:5px 14px;"
                             data-bs-toggle="modal" data-bs-target="#toggleModal"
                             data-room-id="<?= $room['Room_Id'] ?>"
@@ -156,6 +182,45 @@ include "../layout/layout.php";
         <?php endwhile; ?>
         <?php endif; ?>
 
+    </div>
+</div>
+
+<!-- Edit Room Modal -->
+<div class="modal fade" id="editRoomModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content" style="border-radius:14px; border:none;">
+            <div class="modal-header" style="border-bottom:1px solid var(--rd-border); padding:20px 24px;">
+                <h5 class="modal-title" style="font-size:16px; font-weight:700;">Edit Room</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST">
+                <div class="modal-body" style="padding:24px;">
+                    <input type="hidden" name="room_id" id="edit_room_id">
+                    <div class="row g-3">
+                        <div class="col-12">
+                            <label class="form-label">Room Type / Name <span style="color:var(--rd-red)">*</span></label>
+                            <input type="text" name="room_type" id="edit_room_type" class="form-control" required>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label">Price per Night (₱) <span style="color:var(--rd-red)">*</span></label>
+                            <input type="number" name="room_price" id="edit_room_price" class="form-control" min="0" step="0.01" required>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label">Max Guests <span style="color:var(--rd-red)">*</span></label>
+                            <input type="number" name="room_capacity" id="edit_room_capacity" class="form-control" min="1" max="20" required>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Description</label>
+                            <textarea name="room_description" id="edit_room_description" class="form-control" rows="3" placeholder="Brief description of the room..."></textarea>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer" style="border-top:1px solid var(--rd-border); padding:16px 24px;">
+                    <button type="button" class="btn-rd-outline" data-bs-dismiss="modal" style="padding:9px 22px;">Cancel</button>
+                    <button type="submit" name="edit_room" class="btn-rd" style="padding:9px 22px;">Save Changes</button>
+                </div>
+            </form>
+        </div>
     </div>
 </div>
 
@@ -233,6 +298,14 @@ include "../layout/layout.php";
 </div>
 
 <script>
+document.getElementById('editRoomModal').addEventListener('show.bs.modal', function(e) {
+    const btn = e.relatedTarget;
+    document.getElementById('edit_room_id').value          = btn.dataset.roomId;
+    document.getElementById('edit_room_type').value        = btn.dataset.roomType;
+    document.getElementById('edit_room_price').value       = btn.dataset.roomPrice;
+    document.getElementById('edit_room_capacity').value    = btn.dataset.roomCapacity;
+    document.getElementById('edit_room_description').value = btn.dataset.roomDescription;
+});
 document.getElementById('toggleModal').addEventListener('show.bs.modal', function(e) {
     const btn = e.relatedTarget;
     document.getElementById('toggle_room_id').value   = btn.dataset.roomId;
