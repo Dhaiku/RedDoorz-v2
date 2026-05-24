@@ -1,6 +1,12 @@
 ﻿<?php
 $title = "Find Hotels";
 require_once "../config/db.php";
+if (($_SESSION['role'] ?? '') === 'hotel_owner') {
+    header("Location: /owner/dashboard.php"); exit();
+}
+if (($_SESSION['role'] ?? '') === 'admin') {
+    header("Location: /admin/dashboard.php"); exit();
+}
 include "../layout/layout.php";
 
 $city     = trim($conn->real_escape_string($_GET['city']    ?? ''));

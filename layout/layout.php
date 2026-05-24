@@ -549,6 +549,7 @@ if (session_status() === PHP_SESSION_NONE) {
 
         <div class="collapse navbar-collapse" id="rdNav">
             <ul class="navbar-nav me-auto ps-2">
+                <?php if (($_SESSION['role'] ?? '') !== 'hotel_owner' && ($_SESSION['role'] ?? '') !== 'admin'): ?>
                 <li class="nav-item">
                     <a class="nav-link" href="/hotels/search.php">
                         <i class="bi bi-search"></i> Find Hotels
@@ -559,6 +560,7 @@ if (session_status() === PHP_SESSION_NONE) {
                         <i class="bi bi-star"></i> Featured
                     </a>
                 </li>
+                <?php endif; ?>
             </ul>
 
             <div class="d-flex align-items-center gap-2">

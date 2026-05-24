@@ -1,5 +1,11 @@
 ﻿<?php
 require_once "../config/db.php";
+if (($_SESSION['role'] ?? '') === 'hotel_owner') {
+    header("Location: /owner/dashboard.php"); exit();
+}
+if (($_SESSION['role'] ?? '') === 'admin') {
+    header("Location: /admin/dashboard.php"); exit();
+}
 
 $hotelId  = (int) ($_GET['id'] ?? 0);
 $checkin  = $_GET['checkin']  ?? '';

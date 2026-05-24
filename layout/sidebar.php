@@ -70,10 +70,6 @@ $role = $_SESSION['role'] ?? '';
 
         <hr class="divider">
 
-        <a href="/hotels/search.php" class="sidebar-link">
-            <i class="bi bi-search"></i> View Site
-        </a>
-
         <a href="/auth/logout.php" class="sidebar-link" style="color:var(--rd-red);">
             <i class="bi bi-box-arrow-right"></i> Logout
         </a>
