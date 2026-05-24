@@ -8,12 +8,19 @@ if (!isset($_SESSION['account_id']) || $_SESSION['role'] !== 'admin') {
 
 $message = "";
 
-// UPDATE STATUS
+// ADMIN OVERRIDE: cancel-only
 if (isset($_POST['update_status'])) {
     $bookId = (int) $_POST['book_id'];
-    $status = in_array($_POST['status'], ['pending','confirmed','cancelled','completed']) ? $_POST['status'] : 'pending';
-    $conn->query("UPDATE Bookings SET Book_Status='$status' WHERE Book_Id=$bookId");
-    $message = "Booking status updated.";
+    // Admin can only force-cancel; other transitions are handled by owner/customer/system
+    if (isset($_POST['status']) && $_POST['status'] === 'cancelled') {
+        $conn->query("UPDATE Bookings SET Book_Status='cancelled' WHERE Book_Id=$bookId");
+        // Void earnings
+        $hasEarningsTable = $conn->query("SHOW TABLES LIKE 'Earnings'")->num_rows > 0;
+        if ($hasEarningsTable) {
+            $conn->query("UPDATE Earnings SET Earn_Status='voided' WHERE Earn_BookId=$bookId");
+        }
+        $message = "Booking #" . str_pad($bookId,4,'0',STR_PAD_LEFT) . " has been cancelled and earnings voided.";
+    }
 }
 
 // Filters
@@ -60,7 +67,7 @@ $title = "Manage Bookings";
 include "../layout/layout.php";
 ?>
 
-<div style="display:flex; min-height:calc(100vh - 64px);">
+<div style="display:flex; min-height:auto;">
     <?php include "../layout/sidebar.php"; ?>
 
     <div style="flex:1; padding:36px 32px; overflow:visible;">
@@ -97,6 +104,12 @@ include "../layout/layout.php";
             <button type="submit" class="btn-rd" style="padding:10px 20px;">Filter</button>
             <a href="manage_bookings.php" style="font-size:13px; color:#999; align-self:center; text-decoration:none;">Clear</a>
         </form>
+
+        <!-- Admin info banner -->
+        <div style="background:#EFF6FF; border:1px solid #BFDBFE; border-radius:8px; padding:12px 16px; font-size:13px; color:#1E40AF; margin-bottom:20px; display:flex; align-items:center; gap:9px;">
+            <i class="bi bi-info-circle-fill" style="flex-shrink:0;"></i>
+            Admin override is limited to <strong>cancellation only</strong>. Room, check-in, and pricing changes are managed by hotel owners.
+        </div>
 
         <p style="font-size:13px; color:#999; margin-bottom:16px;"><?= $bookings->num_rows ?> booking<?= $bookings->num_rows != 1 ? 's' : '' ?> found</p>
 
@@ -163,19 +176,18 @@ include "../layout/layout.php";
                             <?php endif; ?>
                         </td>
                         <td style="padding:14px 16px; text-align:center;">
-                            <form method="POST" style="display:flex; gap:6px; justify-content:center; align-items:center;">
+                            <?php if (!in_array($b['Book_Status'], ['cancelled','completed'])): ?>
+                            <form method="POST" style="display:inline;" onsubmit="return confirm('Force-cancel booking #<?= $b['Book_Id'] ?>? This will void earnings.');">
                                 <input type="hidden" name="book_id" value="<?= $b['Book_Id'] ?>">
-                                <select name="status" class="form-select" style="font-size:12px; padding:4px 8px; width:130px;">
-                                    <option value="pending"   <?= $b['Book_Status']==='pending'   ? 'selected' : '' ?>>Pending</option>
-                                    <option value="confirmed" <?= $b['Book_Status']==='confirmed' ? 'selected' : '' ?>>Confirmed</option>
-                                    <option value="cancelled" <?= $b['Book_Status']==='cancelled' ? 'selected' : '' ?>>Cancelled</option>
-                                    <option value="completed" <?= $b['Book_Status']==='completed' ? 'selected' : '' ?>>Completed</option>
-                                </select>
+                                <input type="hidden" name="status" value="cancelled">
                                 <button type="submit" name="update_status"
-                                        style="background:var(--rd-red); color:#fff; border:none; padding:5px 12px; font-size:12px; border-radius:6px; cursor:pointer; font-weight:600; white-space:nowrap;">
-                                    Save
+                                        style="background:#FEF2F2; color:#B91C1C; border:1px solid #FECACA; padding:5px 14px; font-size:12px; border-radius:6px; cursor:pointer; font-weight:600; font-family:'DM Sans',sans-serif;">
+                                    <i class="bi bi-x-circle me-1"></i>Cancel
                                 </button>
                             </form>
+                            <?php else: ?>
+                            <span style="font-size:12px; color:#aaa;">—</span>
+                            <?php endif; ?>
                         </td>
                     </tr>
                     <?php endwhile; endif; ?>

@@ -9,6 +9,27 @@ if (!isset($_SESSION['account_id']) || $_SESSION['role'] !== 'customer') {
 $bookId = (int) ($_GET['id'] ?? 0);
 $custId = (int) $_SESSION['customer_id'];
 
+// Handle cancellation from this page
+if (isset($_POST['cancel_booking']) && $bookId) {
+    $bRow = $conn->query("SELECT Book_Status, Book_CheckIn FROM Bookings WHERE Book_Id=$bookId AND Book_CustId=$custId LIMIT 1")->fetch_assoc();
+    $detailCancelMsg = '';
+    if ($bRow && in_array($bRow['Book_Status'], ['pending', 'confirmed'])) {
+        $hoursUntilCI = (strtotime($bRow['Book_CheckIn']) - time()) / 3600;
+        if ($hoursUntilCI >= 24) {
+            $conn->query("UPDATE Bookings SET Book_Status='cancelled' WHERE Book_Id=$bookId AND Book_CustId=$custId");
+            $hasEarningsTable = $conn->query("SHOW TABLES LIKE 'Earnings'")->num_rows > 0;
+            if ($hasEarningsTable) {
+                $conn->query("UPDATE Earnings SET Earn_Status='voided' WHERE Earn_BookId=$bookId");
+            }
+            header("Location: dashboard.php?cancelled=1"); exit();
+        } else {
+            $detailCancelMsg = 'Cancellations must be made at least 24 hours before check-in.';
+        }
+    } else {
+        $detailCancelMsg = 'This booking cannot be cancelled.';
+    }
+}
+
 $booking = $conn->query("
     SELECT b.*, h.Hotel_Name, h.Hotel_City, h.Hotel_Address, h.Hotel_Rating,
            r.Room_Type, r.Room_Price, r.Room_Capacity, r.Room_Description,
@@ -262,8 +283,59 @@ $imgSeed = 'reddoorz' . $booking['Book_HotelId'];
                 <a href="/hotels/search.php" class="btn-rd" style="padding:10px 24px; font-size:14px;">
                     <i class="bi bi-search me-1"></i>Book Another Stay
                 </a>
+                <?php
+                $checkInTs = strtotime($booking['Book_CheckIn']);
+                $hoursUntilCI = ($checkInTs - time()) / 3600;
+                $canCancel = in_array($booking['Book_Status'], ['pending', 'confirmed']) && $hoursUntilCI >= 24;
+                if ($canCancel):
+                ?>
+                <button type="button" class="btn btn-outline-danger" style="font-size:14px; padding:10px 24px; border-radius:8px; font-family:'DM Sans',sans-serif; font-weight:600;"
+                        data-bs-toggle="modal" data-bs-target="#cancelModal">
+                    <i class="bi bi-x-circle me-1"></i>Cancel Booking
+                </button>
+                <?php endif; ?>
             </div>
 
+            <?php if (in_array($booking['Book_Status'], ['pending','confirmed']) && $hoursUntilCI < 24 && $hoursUntilCI >= 0): ?>
+            <div class="alert-rd-danger mt-3" style="display:flex; align-items:center; gap:9px;">
+                <i class="bi bi-clock"></i>
+                Cancellation is no longer available — check-in is less than 24 hours away.
+            </div>
+            <?php endif; ?>
+
+        </div>
+    </div>
+</div>
+
+<!-- ===== Cancel Booking Modal ===== -->
+<div class="modal fade" id="cancelModal" tabindex="-1" aria-labelledby="cancelModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content" style="border-radius:14px; border:none; box-shadow:0 20px 60px rgba(0,0,0,0.18);">
+            <div class="modal-header" style="border-bottom:1px solid var(--rd-border); padding:20px 24px;">
+                <h5 class="modal-title" id="cancelModalLabel" style="font-size:16px; font-weight:700; color:#111;">
+                    <i class="bi bi-exclamation-triangle-fill me-2" style="color:#D97706;"></i>Cancel Booking
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body" style="padding:24px;">
+                <p style="font-size:14px; color:#555; margin-bottom:16px; line-height:1.65;">
+                    Are you sure you want to cancel booking <strong style="color:#111;">#<?= str_pad($bookId, 6, '0', STR_PAD_LEFT) ?></strong>?
+                </p>
+                <div style="background:#FFF8E1; border:1px solid #FFE082; border-radius:8px; padding:12px 14px; font-size:13px; color:#7B5800; display:flex; align-items:flex-start; gap:8px;">
+                    <i class="bi bi-info-circle" style="flex-shrink:0; margin-top:1px;"></i>
+                    <span>This action cannot be undone. Cancellations are only allowed at least 24 hours before check-in.</span>
+                </div>
+            </div>
+            <div class="modal-footer" style="border-top:1px solid var(--rd-border); padding:16px 24px; gap:10px;">
+                <button type="button" class="btn-rd-outline" data-bs-dismiss="modal" style="padding:9px 22px; font-size:14px;">
+                    Keep Booking
+                </button>
+                <form method="POST" style="margin:0;">
+                    <button type="submit" name="cancel_booking" class="btn-rd" style="padding:9px 22px; font-size:14px; background:#C0392B;">
+                        <i class="bi bi-x-circle me-1"></i>Yes, Cancel
+                    </button>
+                </form>
+            </div>
         </div>
     </div>
 </div>

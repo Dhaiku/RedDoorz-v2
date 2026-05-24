@@ -30,6 +30,16 @@ if (isset($_POST['login'])) {
                 }
                 header("Location: /admin/dashboard.php"); exit();
 
+            } elseif ($account['Acct_Role'] === 'hotel_owner') {
+                // Look up hotel owned by this account
+                $owner = $conn->query("SELECT Hotel_Id, Hotel_Name FROM Hotels WHERE Hotel_OwnerId='{$account['Acct_Id']}' LIMIT 1")->fetch_assoc();
+                $_SESSION['display_name'] = $owner['Hotel_Name'] ?? 'Hotel Owner';
+                $_SESSION['hotel_id']     = $owner['Hotel_Id'] ?? null;
+                if ($account['Acct_MustChangePassword']) {
+                    header("Location: change_password.php"); exit();
+                }
+                header("Location: /owner/dashboard.php"); exit();
+
             } else {
                 $cust = $conn->query("SELECT * FROM Customers WHERE Cust_AcctId='{$account['Acct_Id']}' LIMIT 1")->fetch_assoc();
                 $_SESSION['display_name'] = $cust['Cust_FName'] . ' ' . $cust['Cust_LName'];

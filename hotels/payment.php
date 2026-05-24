@@ -102,6 +102,23 @@ if (isset($_POST['pay'])) {
             // Confirm the booking
             $conn->query("UPDATE Bookings SET Book_Status='confirmed' WHERE Book_Id=$bookingId");
 
+            // Insert Earnings record (85% owner / 15% platform) if table exists
+            $hasEarningsTable = $conn->query("SHOW TABLES LIKE 'Earnings'")->num_rows > 0;
+            if ($hasEarningsTable) {
+                $ownerShare  = round($total * 0.85, 2);
+                $platformFee = round($total * 0.15, 2);
+                // Get hotel_id and owner_id for this booking
+                $bInfo = $conn->query("SELECT b.Book_HotelId, h.Hotel_OwnerId FROM Bookings b JOIN Hotels h ON h.Hotel_Id=b.Book_HotelId WHERE b.Book_Id=$bookingId LIMIT 1")->fetch_assoc();
+                $earnHotelId = (int)($bInfo['Book_HotelId'] ?? 0);
+                $earnOwnerId = $bInfo['Hotel_OwnerId'] ? (int)$bInfo['Hotel_OwnerId'] : 'NULL';
+                $conn->query("
+                    INSERT INTO Earnings
+                        (Earn_BookId, Earn_HotelId, Earn_OwnerId, Earn_TotalAmount, Earn_OwnerShare, Earn_PlatformFee, Earn_Status)
+                    VALUES
+                        ($bookingId, $earnHotelId, $earnOwnerId, $total, $ownerShare, $platformFee, 'pending')
+                ");
+            }
+
             header("Location: /customer/booking_detail.php?id=$bookingId&paid=1");
             exit();
         }

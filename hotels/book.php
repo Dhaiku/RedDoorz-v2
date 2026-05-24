@@ -60,8 +60,24 @@ if (isset($_POST['confirm_booking'])) {
               AND Book_CheckOut > '$ciEsc'
         ")->fetch_assoc()['cnt'];
 
+        // Check BlockedDates (maintenance / walk-in blocks set by owner)
+        $hasBlockTable = $conn->query("SHOW TABLES LIKE 'BlockedDates'")->num_rows > 0;
+        $blockedConflict = 0;
+        if ($hasBlockTable) {
+            $blockedConflict = $conn->query("
+                SELECT COUNT(*) AS cnt
+                FROM BlockedDates
+                WHERE Block_RoomId  = $roomId
+                  AND Block_DateFrom < '$coEsc'
+                  AND Block_DateTo   > '$ciEsc'
+            ")->fetch_assoc()['cnt'];
+        }
+
         if ($conflict > 0) {
             $error = "This room is already booked for the selected dates. Please choose different dates or another room.";
+
+        } elseif ($blockedConflict > 0) {
+            $error = "This room is unavailable for the selected dates (blocked for maintenance or walk-in). Please choose different dates.";
 
         } else {
             // Generate unique booking reference code

@@ -13,6 +13,12 @@ $totalRevenue   = $conn->query("SELECT COALESCE(SUM(Book_TotalPrice),0) r FROM B
 $totalCustomers = $conn->query("SELECT COUNT(*) c FROM Accounts WHERE Acct_Role='customer' AND Acct_Status='active'")->fetch_assoc()['c'];
 $pendingPayments= $conn->query("SELECT COUNT(*) c FROM Bookings WHERE Book_Status='pending'")->fetch_assoc()['c'];
 
+// New: payout requests and platform commission
+$hasPayouts  = $conn->query("SHOW TABLES LIKE 'PayoutRequests'")->num_rows > 0;
+$hasEarnings = $conn->query("SHOW TABLES LIKE 'Earnings'")->num_rows > 0;
+$pendingPayouts   = $hasPayouts  ? $conn->query("SELECT COUNT(*) c FROM PayoutRequests WHERE Payout_Status='pending'")->fetch_assoc()['c'] : 0;
+$totalCommission  = $hasEarnings ? $conn->query("SELECT COALESCE(SUM(Earn_PlatformFee),0) v FROM Earnings WHERE Earn_Status!='voided'")->fetch_assoc()['v'] : 0;
+
 $recent = $conn->query("
     SELECT b.*, h.Hotel_Name, h.Hotel_City, r.Room_Type,
            c.Cust_FName, c.Cust_LName
@@ -28,7 +34,7 @@ $title = "Admin Dashboard";
 include "../layout/layout.php";
 ?>
 
-<div style="display:flex; min-height:calc(100vh - 64px);">
+<div style="display:flex; min-height:auto;">
     <?php include "../layout/sidebar.php"; ?>
 
     <div style="flex:1; padding:36px 32px; overflow:visible;">
@@ -114,6 +120,32 @@ include "../layout/layout.php";
                         </div>
                         <div class="stat-icon" style="background:#FFFBEB; color:#D97706;">
                             <i class="bi bi-cash-coin"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-sm-6 col-xl-2" style="flex:0 0 calc(16.66% - 12px); min-width:140px;">
+                <div class="stat-card">
+                    <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                        <div>
+                            <div class="stat-value"><?= $pendingPayouts ?></div>
+                            <div class="stat-label">Pending Payouts</div>
+                        </div>
+                        <div class="stat-icon" style="background:#FEF9C3; color:#A16207;">
+                            <i class="bi bi-send"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-sm-6 col-xl-2" style="flex:0 0 calc(16.66% - 12px); min-width:140px;">
+                <div class="stat-card">
+                    <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                        <div>
+                            <div class="stat-value" style="font-size:18px;">₱<?= number_format($totalCommission) ?></div>
+                            <div class="stat-label">Platform Commission</div>
+                        </div>
+                        <div class="stat-icon" style="background:var(--rd-red-pale); color:var(--rd-red);">
+                            <i class="bi bi-graph-up-arrow"></i>
                         </div>
                     </div>
                 </div>

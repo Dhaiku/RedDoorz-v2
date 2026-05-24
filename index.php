@@ -518,5 +518,103 @@ $isLoggedIn = isset($_SESSION['account_id']);
     </div>
 </section>
 
+<!-- ===== BECOME A HOTEL PARTNER ===== -->
+<section style="padding:80px 0; background:#fff;" data-aos="fade-up">
+    <div class="container">
+        <div style="
+            background: linear-gradient(135deg, #880016 0%, #B80020 60%, #D4001F 100%);
+            border-radius: 24px;
+            overflow: hidden;
+            position: relative;
+            padding: 60px 56px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 40px;
+            flex-wrap: wrap;
+        ">
+            <!-- Decorative circles -->
+            <div style="position:absolute; top:-40px; right:-40px; width:240px; height:240px; border-radius:50%; background:rgba(255,255,255,0.06); pointer-events:none;"></div>
+            <div style="position:absolute; bottom:-60px; right:80px; width:180px; height:180px; border-radius:50%; background:rgba(255,255,255,0.04); pointer-events:none;"></div>
+
+            <!-- Text content -->
+            <div style="position:relative; z-index:1; max-width:500px;">
+                <div style="
+                    display: inline-flex; align-items: center; gap: 6px;
+                    background: rgba(255,255,255,0.18); border: 1px solid rgba(255,255,255,0.25);
+                    border-radius: 20px; padding: 4px 12px;
+                    font-size: 11px; font-weight: 600; letter-spacing: 0.8px;
+                    text-transform: uppercase; color: rgba(255,255,255,0.85);
+                    margin-bottom: 18px;
+                ">
+                    <i class="bi bi-building"></i> Hotel Owners
+                </div>
+                <h2 style="font-size:28px; font-weight:700; color:#fff; margin:0 0 12px; line-height:1.25;">
+                    Grow Your Hotel Business<br>with RedDoorz
+                </h2>
+                <p style="font-size:14px; color:rgba(255,255,255,0.78); margin:0 0 28px; line-height:1.7; max-width:420px;">
+                    Join hundreds of hotel owners on our platform. Get access to booking management tools,
+                    earnings tracking, and a dedicated partner portal — all in one place.
+                </p>
+                <div style="display:flex; gap:14px; flex-wrap:wrap; align-items:center;">
+                    <a href="/owner/apply.php" style="
+                        display: inline-flex; align-items: center; gap: 7px;
+                        background: #fff; color: var(--rd-red);
+                        padding: 12px 28px; border-radius: 8px;
+                        font-size: 14px; font-weight: 700;
+                        transition: background 0.18s;
+                        font-family: 'DM Sans', sans-serif;
+                        text-decoration: none;
+                    "
+                    onmouseover="this.style.background='#f5eaea'"
+                    onmouseout="this.style.background='#fff'">
+                        <i class="bi bi-send-fill"></i> Apply as Partner
+                    </a>
+                    <a href="/auth/login.php" style="
+                        display: inline-flex; align-items: center; gap: 6px;
+                        background: transparent; color: rgba(255,255,255,0.85);
+                        border: 1.5px solid rgba(255,255,255,0.45);
+                        padding: 11px 24px; border-radius: 8px;
+                        font-size: 14px; font-weight: 600;
+                        transition: all 0.18s;
+                        font-family: 'DM Sans', sans-serif;
+                        text-decoration: none;
+                    "
+                    onmouseover="this.style.background='rgba(255,255,255,0.12)'"
+                    onmouseout="this.style.background='transparent'">
+                        <i class="bi bi-box-arrow-in-right"></i> Owner Login
+                    </a>
+                </div>
+            </div>
+
+            <!-- Feature pills -->
+            <div style="position:relative; z-index:1; display:flex; flex-direction:column; gap:12px; min-width:220px;">
+                <?php
+                $perks = [
+                    ['bi-cash-coin',       'Earn 85% of every booking'],
+                    ['bi-speedometer2',    'Real-time booking dashboard'],
+                    ['bi-people',          'Manage staff & front desk'],
+                    ['bi-calendar-check',  'Block dates & manage rooms'],
+                ];
+                foreach ($perks as [$icon, $text]):
+                ?>
+                <div style="
+                    background: rgba(255,255,255,0.12);
+                    border: 1px solid rgba(255,255,255,0.18);
+                    border-radius: 10px;
+                    padding: 11px 16px;
+                    display: flex; align-items: center; gap: 10px;
+                    font-size: 13px; color: #fff; font-weight: 500;
+                ">
+                    <i class="bi <?= $icon ?>" style="font-size:17px; flex-shrink:0; opacity:0.9;"></i>
+                    <?= $text ?>
+                </div>
+                <?php endforeach; ?>
+            </div>
+        </div>
+    </div>
+</section>
+<!-- ===== /BECOME A HOTEL PARTNER ===== -->
+
 
 <?php include "layout/footer.php"; ?>

@@ -283,6 +283,9 @@ if (session_status() === PHP_SESSION_NONE) {
         .badge-confirmed { background:#D1E7DD; color:#0A3622; padding:4px 10px; border-radius:20px; font-size:12px; font-weight:600; }
         .badge-cancelled { background:#F8D7DA; color:#842029; padding:4px 10px; border-radius:20px; font-size:12px; font-weight:600; }
         .badge-completed { background:#CFE2FF; color:#084298; padding:4px 10px; border-radius:20px; font-size:12px; font-weight:600; }
+        .badge-checked-in { background:#D1FAE5; color:#065F46; padding:4px 10px; border-radius:20px; font-size:12px; font-weight:600; }
+        .badge-available  { background:#ECFDF5; color:#047857; padding:4px 10px; border-radius:20px; font-size:12px; font-weight:600; }
+        .badge-voided     { background:#F3F4F6; color:#6B7280; padding:4px 10px; border-radius:20px; font-size:12px; font-weight:600; }
 
         /* =============================================
            RATING STARS
@@ -570,6 +573,22 @@ if (session_status() === PHP_SESSION_NONE) {
                                 <li>
                                     <a class="dropdown-item py-2" href="/admin/dashboard.php">
                                         <i class="bi bi-speedometer2 me-2" style="color:var(--rd-red)"></i>Admin Panel
+                                    </a>
+                                </li>
+                            <?php elseif (($_SESSION['role'] ?? '') === 'hotel_owner'): ?>
+                                <li>
+                                    <a class="dropdown-item py-2" href="/owner/dashboard.php">
+                                        <i class="bi bi-building me-2" style="color:var(--rd-red)"></i>Owner Dashboard
+                                    </a>
+                                </li>
+                                <li>
+                                    <a class="dropdown-item py-2" href="/owner/manage_bookings.php">
+                                        <i class="bi bi-calendar-check me-2" style="color:var(--rd-red)"></i>Bookings
+                                    </a>
+                                </li>
+                                <li>
+                                    <a class="dropdown-item py-2" href="/owner/earnings.php">
+                                        <i class="bi bi-cash-coin me-2" style="color:var(--rd-red)"></i>Earnings
                                     </a>
                                 </li>
                             <?php else: ?>

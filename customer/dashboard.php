@@ -9,11 +9,48 @@ if (!isset($_SESSION['account_id']) || $_SESSION['role'] !== 'customer') {
 if (isset($_POST['cancel_booking'])) {
     $bookId = (int) $_POST['book_id'];
     $custId = (int) $_SESSION['customer_id'];
-    $conn->query("UPDATE Bookings SET Book_Status='cancelled' WHERE Book_Id=$bookId AND Book_CustId=$custId AND Book_Status='pending'");
-    header("Location: dashboard.php"); exit();
+
+    // Fetch booking to check status and 24-hour rule
+    $bRow = $conn->query("
+        SELECT Book_Status, Book_CheckIn FROM Bookings
+        WHERE Book_Id=$bookId AND Book_CustId=$custId
+        LIMIT 1
+    ")->fetch_assoc();
+
+    $cancelError = '';
+    if (!$bRow) {
+        $cancelError = 'Booking not found.';
+    } elseif (!in_array($bRow['Book_Status'], ['pending', 'confirmed'])) {
+        $cancelError = 'This booking cannot be cancelled.';
+    } else {
+        // Enforce 24-hour rule: cannot cancel within 24h of check-in
+        $checkInTs = strtotime($bRow['Book_CheckIn']);
+        $hoursUntilCheckIn = ($checkInTs - time()) / 3600;
+        if ($hoursUntilCheckIn < 24) {
+            $cancelError = 'Cancellations must be made at least 24 hours before check-in.';
+        }
+    }
+
+    if (!$cancelError) {
+        $conn->query("UPDATE Bookings SET Book_Status='cancelled' WHERE Book_Id=$bookId AND Book_CustId=$custId");
+        // Void the Earnings record if it exists
+        $hasEarningsTable = $conn->query("SHOW TABLES LIKE 'Earnings'")->num_rows > 0;
+        if ($hasEarningsTable) {
+            $conn->query("UPDATE Earnings SET Earn_Status='voided' WHERE Earn_BookId=$bookId");
+        }
+        header("Location: dashboard.php?cancelled=1"); exit();
+    } else {
+        // Re-show dashboard with error
+        session_start() ; // already started but store error
+        $_SESSION['cancel_error'] = $cancelError;
+        header("Location: dashboard.php"); exit();
+    }
 }
 
 $custId   = (int) $_SESSION['customer_id'];
+$cancelError = $_SESSION['cancel_error'] ?? '';
+unset($_SESSION['cancel_error']);
+$justCancelled = isset($_GET['cancelled']);
 
 $hasPaymentsTable = $conn->query("SHOW TABLES LIKE 'Payments'")->num_rows > 0;
 
@@ -52,6 +89,18 @@ include "../layout/layout.php";
             <h1>My Bookings</h1>
             <p>Track and manage all your hotel reservations.</p>
         </div>
+
+        <?php if ($justCancelled): ?>
+        <div class="alert-rd-success mb-4" style="display:flex; align-items:center; gap:9px;">
+            <i class="bi bi-check-circle-fill"></i> Your booking has been successfully cancelled.
+        </div>
+        <?php endif; ?>
+
+        <?php if ($cancelError): ?>
+        <div class="alert-rd-danger mb-4" style="display:flex; align-items:center; gap:9px;">
+            <i class="bi bi-exclamation-circle"></i> <?= htmlspecialchars($cancelError) ?>
+        </div>
+        <?php endif; ?>
 
         <?php if ($bookings->num_rows === 0): ?>
             <!-- Empty state -->
@@ -157,7 +206,9 @@ include "../layout/layout.php";
                                     <i class="bi bi-credit-card me-1"></i>Pay Now
                                 </a>
                                 <?php endif; ?>
-                                <form method="POST" onsubmit="return confirm('Cancel this booking?');" style="margin:0;">
+                            <?php endif; ?>
+                            <?php if (in_array($b['Book_Status'], ['pending', 'confirmed'])): ?>
+                                <form method="POST" onsubmit="return confirm('Cancel this booking? This cannot be undone.');" style="margin:0;">
                                     <input type="hidden" name="book_id" value="<?= $b['Book_Id'] ?>">
                                     <button type="submit" name="cancel_booking" style="
                                         font-size:12px; background:none; color:#999;
