@@ -48,6 +48,11 @@ $role = $_SESSION['role'] ?? '';
             <i class="bi bi-speedometer2"></i> Dashboard
         </a>
 
+        <a href="/owner/hotel_profile.php"
+           class="sidebar-link <?= $currentPage === 'hotel_profile.php' ? 'active' : '' ?>">
+            <i class="bi bi-building-gear"></i> Hotel Profile
+        </a>
+
         <a href="/owner/manage_bookings.php"
            class="sidebar-link <?= $currentPage === 'manage_bookings.php' ? 'active' : '' ?>">
             <i class="bi bi-calendar-check"></i> Bookings

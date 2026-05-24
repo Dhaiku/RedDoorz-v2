@@ -104,20 +104,35 @@ $imgSeed = 'reddoorz' . $hotelId;
             </div>
 
             <!-- Amenities -->
+            <?php
+            $allAmenityMap = [
+                'free_wifi'        => ['bi-wifi',             'Free WiFi'],
+                'air_conditioning' => ['bi-thermometer-half', 'Air Conditioning'],
+                'hot_shower'       => ['bi-droplet',          'Hot Shower'],
+                'cable_tv'         => ['bi-tv',               'Cable TV'],
+                'breakfast'        => ['bi-cup-hot',          'Breakfast Option'],
+                'parking'          => ['bi-p-square',         'Parking Available'],
+                'swimming_pool'    => ['bi-water',            'Swimming Pool'],
+                'gym'              => ['bi-bicycle',          'Fitness Center'],
+                'restaurant'       => ['bi-shop',             'Restaurant'],
+                'room_service'     => ['bi-bell',             'Room Service'],
+                'laundry'          => ['bi-bag',              'Laundry Service'],
+                'airport_shuttle'  => ['bi-bus-front',        'Airport Shuttle'],
+            ];
+            $hasAmenCol = $conn->query("SHOW COLUMNS FROM Hotels LIKE 'Hotel_Amenities'")->num_rows > 0;
+            if ($hasAmenCol && !empty($hotel['Hotel_Amenities'])) {
+                $amenityKeys = explode(',', $hotel['Hotel_Amenities']);
+                $amenities   = array_filter($allAmenityMap, fn($k) => in_array($k, $amenityKeys), ARRAY_FILTER_USE_KEY);
+            } else {
+                // Default set shown before migration or if none selected
+                $amenities = array_slice($allAmenityMap, 0, 6, true);
+            }
+            ?>
+            <?php if (!empty($amenities)): ?>
             <div style="background:#fff; border-radius:14px; padding:24px; box-shadow:var(--rd-shadow); margin-bottom:20px; border:1px solid rgba(228,223,223,0.5);" data-aos="fade-up">
                 <h5 style="font-size:15px; font-weight:700; margin-bottom:18px;">Hotel Amenities</h5>
                 <div class="row g-3">
-                    <?php
-                    $amenities = [
-                        ['bi-wifi',             'Free WiFi'],
-                        ['bi-thermometer-half', 'Air Conditioning'],
-                        ['bi-droplet',          'Hot Shower'],
-                        ['bi-tv',               'Cable TV'],
-                        ['bi-cup-hot',          'Breakfast Option'],
-                        ['bi-p-square',         'Parking Available'],
-                    ];
-                    foreach ($amenities as [$icon, $label]):
-                    ?>
+                    <?php foreach ($amenities as [$icon, $label]): ?>
                     <div class="col-6 col-md-4">
                         <div style="
                             display:flex; align-items:center; gap:9px;
@@ -133,6 +148,7 @@ $imgSeed = 'reddoorz' . $hotelId;
                     <?php endforeach; ?>
                 </div>
             </div>
+            <?php endif; ?>
 
             <!-- Available Rooms -->
             <div style="background:#fff; border-radius:14px; padding:24px; box-shadow:var(--rd-shadow); border:1px solid rgba(228,223,223,0.5);" data-aos="fade-up">

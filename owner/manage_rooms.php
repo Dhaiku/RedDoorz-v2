@@ -248,7 +248,7 @@ include "../layout/layout.php";
                         </div>
                         <div class="col-12">
                             <label class="form-label">Description</label>
-                            <textarea name="room_description" class="form-control" rows="3" placeholder="Brief description of the room..."></textarea>
+                            <textarea name="room_description" class="form-control" rows="3" placeholder="Brief description of the room, bed type, view, etc..."></textarea>
                         </div>
                     </div>
                 </div>
