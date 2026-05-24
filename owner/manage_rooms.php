@@ -9,8 +9,34 @@ if (!isset($_SESSION['account_id']) || $_SESSION['role'] !== 'hotel_owner') {
 $hotelId = (int) ($_SESSION['hotel_id'] ?? 0);
 if (!$hotelId) { header("Location: /auth/logout.php"); exit(); }
 
-// Handle room edit
+// Handle add room
 $msg = '';
+if (isset($_POST['add_room'])) {
+    $type  = $conn->real_escape_string(trim($_POST['room_type']        ?? ''));
+    $price = max(0, (float) $_POST['room_price']);
+    $cap   = max(1, (int) $_POST['room_capacity']);
+    $desc  = $conn->real_escape_string(trim($_POST['room_description'] ?? ''));
+    if ($type !== '') {
+        $conn->query("INSERT INTO Rooms (Room_HotelId, Room_Type, Room_Price, Room_Capacity, Room_Description, Room_Status) VALUES ($hotelId,'$type',$price,$cap,'$desc','available')");
+        $msg = 'Room added successfully.';
+    } else {
+        $msg = 'Room type/name is required.';
+    }
+    header("Location: manage_rooms.php?msg=" . urlencode($msg)); exit();
+}
+
+// Handle delete room
+if (isset($_POST['delete_room'])) {
+    $roomId = (int) $_POST['room_id'];
+    $check  = $conn->query("SELECT Room_Id FROM Rooms WHERE Room_Id=$roomId AND Room_HotelId=$hotelId LIMIT 1");
+    if ($check->num_rows > 0) {
+        $conn->query("DELETE FROM Rooms WHERE Room_Id=$roomId");
+        $msg = 'Room deleted.';
+    }
+    header("Location: manage_rooms.php?msg=" . urlencode($msg)); exit();
+}
+
+// Handle room edit
 if (isset($_POST['edit_room'])) {
     $roomId  = (int) $_POST['room_id'];
     $type    = $conn->real_escape_string(trim($_POST['room_type']        ?? ''));
@@ -89,9 +115,14 @@ include "../layout/layout.php";
 
     <div style="flex:1; padding:36px 32px; overflow:visible;">
 
-        <div class="page-header">
-            <h1>Rooms</h1>
-            <p>View room availability and block dates for your hotel.</p>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:28px; flex-wrap:wrap; gap:12px;">
+            <div class="page-header" style="margin:0;">
+                <h1>Rooms</h1>
+                <p>Manage rooms, availability, and blocked dates for your hotel.</p>
+            </div>
+            <button type="button" class="btn-rd" data-bs-toggle="modal" data-bs-target="#addRoomModal">
+                <i class="bi bi-plus-lg me-1"></i>Add Room
+            </button>
         </div>
 
         <?php if (isset($_GET['msg']) && $_GET['msg']): ?>
@@ -153,6 +184,13 @@ include "../layout/layout.php";
                             data-room-type="<?= htmlspecialchars($room['Room_Type']) ?>">
                         <i class="bi bi-calendar-x me-1"></i>Block Dates
                     </button>
+                    <form method="POST" style="margin:0;" onsubmit="return confirm('Delete this room? This cannot be undone.');">
+                        <input type="hidden" name="room_id" value="<?= $room['Room_Id'] ?>">
+                        <button type="submit" name="delete_room"
+                                style="background:none; border:1px solid #FECACA; color:#B91C1C; padding:5px 14px; font-size:12px; border-radius:8px; cursor:pointer; font-weight:600; font-family:'DM Sans',sans-serif;">
+                            <i class="bi bi-trash me-1"></i>Delete
+                        </button>
+                    </form>
                 </div>
             </div>
 
@@ -182,6 +220,44 @@ include "../layout/layout.php";
         <?php endwhile; ?>
         <?php endif; ?>
 
+    </div>
+</div>
+
+<!-- Add Room Modal -->
+<div class="modal fade" id="addRoomModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content" style="border-radius:14px; border:none;">
+            <div class="modal-header" style="border-bottom:1px solid var(--rd-border); padding:20px 24px;">
+                <h5 class="modal-title" style="font-size:16px; font-weight:700;">Add New Room</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST">
+                <div class="modal-body" style="padding:24px;">
+                    <div class="row g-3">
+                        <div class="col-12">
+                            <label class="form-label">Room Type / Name <span style="color:var(--rd-red)">*</span></label>
+                            <input type="text" name="room_type" class="form-control" placeholder="e.g. Deluxe Room, Suite" required>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label">Price per Night (₱) <span style="color:var(--rd-red)">*</span></label>
+                            <input type="number" name="room_price" class="form-control" min="0" step="0.01" placeholder="0.00" required>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label">Max Guests <span style="color:var(--rd-red)">*</span></label>
+                            <input type="number" name="room_capacity" class="form-control" min="1" max="20" value="2" required>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Description</label>
+                            <textarea name="room_description" class="form-control" rows="3" placeholder="Brief description of the room..."></textarea>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer" style="border-top:1px solid var(--rd-border); padding:16px 24px;">
+                    <button type="button" class="btn-rd-outline" data-bs-dismiss="modal" style="padding:9px 22px;">Cancel</button>
+                    <button type="submit" name="add_room" class="btn-rd" style="padding:9px 22px;">Add Room</button>
+                </div>
+            </form>
+        </div>
     </div>
 </div>
 
