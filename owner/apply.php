@@ -7,7 +7,10 @@ $success = false;
 $error   = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['apply'])) {
-    $fullName    = trim($conn->real_escape_string($_POST['full_name']    ?? ''));
+    $firstName   = trim($conn->real_escape_string($_POST['first_name']      ?? ''));
+    $lastName    = trim($conn->real_escape_string($_POST['last_name']       ?? ''));
+    $middleInit  = trim($conn->real_escape_string($_POST['middle_initial']  ?? ''));
+    $fullName    = trim($firstName . ' ' . $lastName . ($middleInit ? ' ' . rtrim($middleInit, '.') . '.' : ''));
     $email       = trim($conn->real_escape_string($_POST['email']        ?? ''));
     $phone       = trim($conn->real_escape_string($_POST['phone']        ?? ''));
     $hotelName   = trim($conn->real_escape_string($_POST['hotel_name']   ?? ''));
@@ -16,7 +19,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['apply'])) {
     $roomCount   = max(1, (int)($_POST['room_count'] ?? 1));
     $message     = trim($conn->real_escape_string($_POST['message']      ?? ''));
 
-    if (!$fullName || !$email || !$phone || !$hotelName || !$hotelCity) {
+    if (!$firstName || !$lastName || !$email || !$phone || !$hotelName || !$hotelCity) {
         $error = 'Please fill in all required fields.';
     } elseif (!filter_var(str_replace('\x27','',$_POST['email']), FILTER_VALIDATE_EMAIL)) {
         $error = 'Please enter a valid email address.';
@@ -89,11 +92,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['apply'])) {
             </h5>
 
             <div class="row g-3 mb-4">
-                <div class="col-md-6">
-                    <label class="form-label">Full Name <span style="color:var(--rd-red)">*</span></label>
-                    <input type="text" name="full_name" class="form-control"
-                           placeholder="Juan dela Cruz"
-                           value="<?= htmlspecialchars($_POST['full_name'] ?? '') ?>" required>
+                <div class="col-md-5">
+                    <label class="form-label">First Name <span style="color:var(--rd-red)">*</span></label>
+                    <input type="text" name="first_name" class="form-control"
+                           placeholder="Juan"
+                           value="<?= htmlspecialchars($_POST['first_name'] ?? '') ?>" required>
+                </div>
+                <div class="col-md-5">
+                    <label class="form-label">Last Name <span style="color:var(--rd-red)">*</span></label>
+                    <input type="text" name="last_name" class="form-control"
+                           placeholder="dela Cruz"
+                           value="<?= htmlspecialchars($_POST['last_name'] ?? '') ?>" required>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">M.I.</label>
+                    <input type="text" name="middle_initial" class="form-control"
+                           placeholder="A."
+                           maxlength="3"
+                           value="<?= htmlspecialchars($_POST['middle_initial'] ?? '') ?>">
                 </div>
                 <div class="col-md-6">
                     <label class="form-label">Email Address <span style="color:var(--rd-red)">*</span></label>

@@ -17,9 +17,19 @@ if (isset($_POST['approve_app']) && $hasAppsTable) {
         // Create account with hotel_owner role
         $email    = $conn->real_escape_string($app['App_Email']);
         $name     = $conn->real_escape_string($app['App_FullName']);
-        $tmpPass  = password_hash('reddoorz123', PASSWORD_DEFAULT); // temp password
-        $conn->query("INSERT INTO Accounts (Acct_Email, Acct_Password, Acct_Role, Acct_Status, Acct_MustChangePassword) VALUES ('$email','$tmpPass','hotel_owner','active',1)");
-        $newAcctId = $conn->insert_id;
+        $tmpPass  = password_hash(
+            $conn->real_escape_string($_POST['tmp_pass'] ?? 'reddoorz123'),
+            PASSWORD_DEFAULT
+        );
+
+        // Check for duplicate email before inserting
+        $emailExists = $conn->query("SELECT Acct_Id FROM Accounts WHERE Acct_Email='$email' LIMIT 1")->num_rows > 0;
+        if ($emailExists) {
+            $error = "An account with email '{$app['App_Email']}' already exists. Cannot create duplicate.";
+        } else {
+            $conn->query("INSERT INTO Accounts (Acct_Email, Acct_Password, Acct_Role, Acct_Status, Acct_MustChangePassword) VALUES ('$email','$tmpPass','hotel_owner','active',1)");
+        }
+        $newAcctId = $emailExists ? 0 : $conn->insert_id;
 
         if ($newAcctId) {
             // Create hotel record
@@ -34,7 +44,8 @@ if (isset($_POST['approve_app']) && $hasAppsTable) {
             $error = "Email already exists. Cannot create duplicate account.";
         }
     }
-    if ($msg) { header("Location: manage_owners.php?msg=" . urlencode($msg)); exit(); }
+    if ($msg)   { header("Location: manage_owners.php?msg=" . urlencode($msg)); exit(); }
+    if ($error) { header("Location: manage_owners.php?err=" . urlencode($error)); exit(); }
 }
 
 // Reject application
@@ -83,9 +94,11 @@ include "../layout/layout.php";
             <i class="bi bi-check-circle-fill"></i> <?= htmlspecialchars($_GET['msg']) ?>
         </div>
         <?php endif; ?>
-        <?php if ($error): ?>
+        <?php
+        $displayError = $error ?: (isset($_GET['err']) ? $_GET['err'] : '');
+        if ($displayError): ?>
         <div class="alert-rd-danger mb-4" style="display:flex; align-items:center; gap:9px;">
-            <i class="bi bi-exclamation-circle"></i> <?= htmlspecialchars($error) ?>
+            <i class="bi bi-exclamation-circle"></i> <?= htmlspecialchars($displayError) ?>
         </div>
         <?php endif; ?>
 

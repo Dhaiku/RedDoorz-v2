@@ -18,16 +18,6 @@ $role = $_SESSION['role'] ?? '';
             <i class="bi bi-building"></i> Hotels
         </a>
 
-        <a href="/admin/manage_rooms.php"
-           class="sidebar-link <?= $currentPage === 'manage_rooms.php' ? 'active' : '' ?>">
-            <i class="bi bi-door-closed"></i> Rooms
-        </a>
-
-        <a href="/admin/manage_bookings.php"
-           class="sidebar-link <?= $currentPage === 'manage_bookings.php' ? 'active' : '' ?>">
-            <i class="bi bi-calendar-check"></i> Bookings
-        </a>
-
         <a href="/admin/manage_customers.php"
            class="sidebar-link <?= $currentPage === 'manage_customers.php' ? 'active' : '' ?>">
             <i class="bi bi-people"></i> Customers
