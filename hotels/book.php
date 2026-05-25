@@ -30,12 +30,23 @@ if (isset($_POST['confirm_booking'])) {
     $checkout = $_POST['checkout'];
     $guests   = (int) $_POST['guests'];
 
-    $dtIn  = new DateTime($checkin);
-    $dtOut = new DateTime($checkout);
-    $nights = max(1, $dtIn->diff($dtOut)->days);
+    $dtIn    = new DateTime($checkin);
+    $dtOut   = new DateTime($checkout);
+    $dtToday = new DateTime(date('Y-m-d'));
+    $dtMax   = new DateTime(date('Y-m-d', strtotime('+2 years')));
+    $nights  = max(1, $dtIn->diff($dtOut)->days);
 
-    if ($dtOut <= $dtIn) {
+    if ($dtIn < $dtToday) {
+        $error = "Check-in date cannot be in the past.";
+
+    } elseif ($dtOut <= $dtIn) {
         $error = "Check-out date must be after check-in date.";
+
+    } elseif ($dtOut < $dtToday) {
+        $error = "Check-out date cannot be in the past.";
+
+    } elseif ($dtIn > $dtMax || $dtOut > $dtMax) {
+        $error = "Dates cannot be more than 2 years in the future.";
 
     } elseif ($guests < 1 || $guests > $room['Room_Capacity']) {
         $error = "Guests must be between 1 and {$room['Room_Capacity']}.";
@@ -309,7 +320,22 @@ function recalc() {
     document.getElementById('nightsDisplay').textContent = nights + ' night' + (nights !== 1 ? 's' : '');
     document.getElementById('totalDisplay').textContent  = '₱' + (pricePerNight * nights).toLocaleString();
 }
-document.getElementById('checkin').addEventListener('change', recalc);
+document.getElementById('checkin').addEventListener('change', function() {
+    const ci = this.value;
+    if (ci) {
+        // checkout min = checkin + 1 day
+        const nextDay = new Date(ci);
+        nextDay.setDate(nextDay.getDate() + 1);
+        const minCo = nextDay.toISOString().split('T')[0];
+        const coInput = document.getElementById('checkout');
+        coInput.min = minCo;
+        // if checkout is now before the new min, clear it
+        if (coInput.value && coInput.value <= ci) {
+            coInput.value = '';
+        }
+    }
+    recalc();
+});
 document.getElementById('checkout').addEventListener('change', recalc);
 </script>
 

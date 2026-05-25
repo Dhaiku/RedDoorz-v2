@@ -247,4 +247,20 @@ if ($datesGiven) {
 </div>
 
 
+<script>
+document.querySelector('input[name="checkin"]').addEventListener('change', function() {
+    const ci = this.value;
+    if (ci) {
+        const nextDay = new Date(ci);
+        nextDay.setDate(nextDay.getDate() + 1);
+        const minCo = nextDay.toISOString().split('T')[0];
+        const coInput = document.querySelector('input[name="checkout"]');
+        coInput.min = minCo;
+        if (coInput.value && coInput.value <= ci) {
+            coInput.value = '';
+        }
+    }
+});
+</script>
+
 <?php include "../layout/footer.php"; ?>
