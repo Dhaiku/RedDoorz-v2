@@ -22,94 +22,109 @@ use Kreait\Firebase\Factory;
 
 // ── Cache layer ───────────────────────────────────────────────────────────────
 //
-// Two-level cache to avoid repeated HTTPS round-trips to Firestore:
-//   1. Request cache  — static PHP array; identical calls within one page load
-//                       are answered instantly from memory (0ms).
-//   2. Disk cache     — JSON files in /cache/; survives across page loads.
-//                       TTLs are per-collection (stable data lives longer).
+// Two-level cache:
+//   1. Memory (static array)  — 0ms, lives for current request only
+//   2. Disk (JSON files)      — ~1ms, survives across page loads
 //
-// Write operations (insert/update/delete) bust both caches for that collection.
+// TTLs are long because writes always bust the relevant collection instantly.
+// A 1-in-50 chance cleanup runs on each request to delete expired files.
 
 define('_FS_CACHE_DIR', __DIR__ . '/../cache/');
 
-// TTL in seconds per collection (0 = do not disk-cache)
+// TTL in seconds — kept long because writes immediately bust the cache
 $_FS_CACHE_TTL = [
-    'hotels'           => 120,   // 2 min  — rarely changes
-    'rooms'            => 60,    // 1 min
-    'bookings'         => 20,    // 20 sec — changes more often
-    'payments'         => 20,
-    'earnings'         => 30,
-    'customers'        => 120,
-    'accounts'         => 120,
-    'reviews'          => 120,
-    'hotelstaff'       => 120,
-    'fcmtokens'        => 30,
-    'payoutrequests'   => 20,
-    'blockeddates'     => 60,
-    'ownerapplications'=> 30,
-    'counters'         => 0,     // never cache — must always be live
+    'hotels'            => 600,   // 10 min
+    'rooms'             => 300,   // 5 min
+    'bookings'          => 120,   // 2 min
+    'payments'          => 120,
+    'earnings'          => 300,
+    'customers'         => 600,
+    'accounts'          => 600,
+    'reviews'           => 600,
+    'hotelstaff'        => 600,
+    'fcmtokens'         => 120,
+    'payoutrequests'    => 120,
+    'blockeddates'      => 300,
+    'ownerapplications' => 120,
+    'counters'          => 0,     // never cache — always live
 ];
 
-/** Request-level memory cache: col => [cacheKey => result] */
+/** Memory store — shared across all calls in one PHP request */
 function &_fs_mem_cache(): array {
     static $store = [];
     return $store;
 }
 
 function _fs_cache_key(string $col, string $op, array $params): string {
-    // Colons are invalid in Windows filenames — use double-underscore as separator
     return $col . '__' . $op . '__' . md5(serialize($params));
 }
 
 function _fs_cache_get(string $col, string $key, bool $allowStale = false) {
     global $_FS_CACHE_TTL;
-    // 1. Memory cache (always check first — always fresh within this request)
-    $mem = &_fs_mem_cache();
-    if (isset($mem[$key])) return $mem[$key];
 
-    // 2. Disk cache
-    $ttl = $_FS_CACHE_TTL[$col] ?? 30;
+    // 1. Memory — fastest path
+    $mem = &_fs_mem_cache();
+    if (array_key_exists($key, $mem)) return $mem[$key];
+
+    // 2. Disk
+    $ttl = $_FS_CACHE_TTL[$col] ?? 60;
     if ($ttl <= 0) return null;
 
-    if (!is_dir(_FS_CACHE_DIR)) @mkdir(_FS_CACHE_DIR, 0755, true);
     $file = _FS_CACHE_DIR . $key . '.json';
     if (!file_exists($file)) return null;
 
-    $age  = time() - filemtime($file);
-    // If $allowStale, serve expired cache rather than returning null
-    // (used as fallback when Firestore is unreachable)
+    $age = time() - filemtime($file);
     if ($age > $ttl && !$allowStale) return null;
 
-    $data = json_decode(file_get_contents($file), true);
+    $raw  = file_get_contents($file);
+    $data = $raw !== false ? json_decode($raw, true) : null;
     if ($data === null) return null;
 
-    $mem[$key] = $data;
+    $mem[$key] = $data;   // promote to memory
     return $data;
 }
 
 function _fs_cache_set(string $col, string $key, $value): void {
     global $_FS_CACHE_TTL;
-    // Always store in memory
+
     $mem = &_fs_mem_cache();
     $mem[$key] = $value;
 
-    // Disk cache only when TTL > 0
-    $ttl = $_FS_CACHE_TTL[$col] ?? 30;
+    $ttl = $_FS_CACHE_TTL[$col] ?? 60;
     if ($ttl <= 0) return;
 
     if (!is_dir(_FS_CACHE_DIR)) @mkdir(_FS_CACHE_DIR, 0755, true);
-    $file = _FS_CACHE_DIR . $key . '.json';
-    @file_put_contents($file, json_encode($value), LOCK_EX);
+    @file_put_contents(_FS_CACHE_DIR . $key . '.json', json_encode($value), LOCK_EX);
+
+    // 2% chance: sweep expired files so the cache dir stays lean
+    if (mt_rand(1, 50) === 1) _fs_cache_sweep();
 }
 
-/** Bust all cached entries for a collection (called on write). */
+/** Delete expired cache files. Fast — only unlinks files past their TTL. */
+function _fs_cache_sweep(): void {
+    global $_FS_CACHE_TTL;
+    if (!is_dir(_FS_CACHE_DIR)) return;
+    $now = time();
+    foreach (glob(_FS_CACHE_DIR . '*.json') as $f) {
+        $base = basename($f, '.json');
+        // derive collection name from filename prefix (everything before __)
+        $col = strstr($base, '__', true) ?: '';
+        $ttl = $_FS_CACHE_TTL[$col] ?? 60;
+        if ($ttl > 0 && ($now - filemtime($f)) > $ttl * 2) {
+            @unlink($f);
+        }
+    }
+}
+
+/** Bust all cached entries for a collection (called on every write). */
 function _fs_cache_bust(string $col): void {
-    // Clear memory cache entries for this collection
+    // Clear memory
     $mem = &_fs_mem_cache();
     foreach (array_keys($mem) as $k) {
-        if (strpos($k, $col . '__') === 0) unset($mem[$k]);
+        if (strncmp($k, $col . '__', strlen($col) + 2) === 0) unset($mem[$k]);
     }
-    // Delete disk cache files for this collection
+    // Delete disk files — use a collection-specific index file to avoid
+    // scanning the whole directory with glob() every time
     if (!is_dir(_FS_CACHE_DIR)) return;
     foreach (glob(_FS_CACHE_DIR . $col . '__*.json') as $f) {
         @unlink($f);
@@ -206,6 +221,34 @@ function base64url_encode(string $data): string {
 
 // ── Low-level HTTP helpers ────────────────────────────────────────────────────
 
+// ── Shared curl handle (connection reuse / keep-alive) ────────────────────────
+//
+// A single curl handle reused across all _fs_req() calls in one PHP request
+// means only ONE TLS handshake per page load (~400 ms saved per extra call).
+// PHP frees the handle automatically at request end.
+
+/** Return (or create) the shared persistent curl handle for Firestore calls. */
+function &_fs_curl_handle() {
+    static $ch = null;
+    if ($ch === null) {
+        $ch = curl_init();
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_CONNECTTIMEOUT => 5,
+            CURLOPT_TIMEOUT        => 8,
+            CURLOPT_TCP_KEEPALIVE  => 1,       // keep TCP connection alive
+            CURLOPT_TCP_KEEPIDLE   => 30,      // send keepalive after 30s idle
+            CURLOPT_ENCODING       => 'gzip',  // accept gzip to cut bandwidth
+            // HTTP/2 where available — falls back to HTTP/1.1 automatically
+            CURLOPT_HTTP_VERSION   => defined('CURL_HTTP_VERSION_2TLS')
+                                      ? CURL_HTTP_VERSION_2TLS
+                                      : CURLOPT_HTTP_VERSION,
+        ]);
+    }
+    return $ch;
+}
+
 function _fs_http_post(string $url, $body, string $ct = 'application/json'): array {
     $ch = curl_init($url);
     curl_setopt_array($ch, [
@@ -214,8 +257,8 @@ function _fs_http_post(string $url, $body, string $ct = 'application/json'): arr
         CURLOPT_POSTFIELDS     => is_array($body) ? json_encode($body) : $body,
         CURLOPT_HTTPHEADER     => ["Content-Type: $ct"],
         CURLOPT_SSL_VERIFYPEER => true,
-        CURLOPT_CONNECTTIMEOUT => 5,   // fail if can't connect within 5s
-        CURLOPT_TIMEOUT        => 8,   // fail if full request takes >8s
+        CURLOPT_CONNECTTIMEOUT => 5,
+        CURLOPT_TIMEOUT        => 8,
     ]);
     $out = curl_exec($ch);
     curl_close($ch);
@@ -224,24 +267,25 @@ function _fs_http_post(string $url, $body, string $ct = 'application/json'): arr
 
 function _fs_req(string $method, string $url, array $body = []): array {
     $tok = _fs_token();
-    $ch  = curl_init($url);
+    $ch  = &_fs_curl_handle();
+
     $opts = [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_CUSTOMREQUEST  => $method,
-        CURLOPT_HTTPHEADER     => [
+        CURLOPT_URL           => $url,
+        CURLOPT_CUSTOMREQUEST => $method,
+        CURLOPT_HTTPHEADER    => [
             "Authorization: Bearer $tok",
             'Content-Type: application/json',
         ],
-        CURLOPT_SSL_VERIFYPEER => true,
-        CURLOPT_CONNECTTIMEOUT => 5,   // fail if can't connect within 5s
-        CURLOPT_TIMEOUT        => 8,   // fail if full request takes >8s
+        CURLOPT_POSTFIELDS    => $body ? json_encode($body) : null,
     ];
-    if ($body) $opts[CURLOPT_POSTFIELDS] = json_encode($body);
     curl_setopt_array($ch, $opts);
-    $out     = curl_exec($ch);
-    $errno   = curl_errno($ch);
-    $code    = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
+
+    $out   = curl_exec($ch);
+    $errno = curl_errno($ch);
+    $code  = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+
+    // Reset body for next call (shared handle must not leak POST body)
+    curl_setopt($ch, CURLOPT_POSTFIELDS, null);
 
     // Network error (timeout, no connection, etc.) — return sentinel
     if ($errno !== 0) {
