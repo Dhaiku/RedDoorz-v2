@@ -522,6 +522,7 @@ if (session_status() === PHP_SESSION_NONE) {
             color: #aaa;
             width: 100%;
             display: block;
+            margin-top: auto;
         }
 
         /* =============================================
