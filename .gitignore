@@ -6,3 +6,9 @@ skills-lock.json
 # Logs & temp
 *.log
 *.tmp
+
+# Firebase service account keys — NEVER commit these
+*-firebase-adminsdk-*.json
+firebase-service-account.json
+serviceAccountKey.json
+google-services-admin.json
