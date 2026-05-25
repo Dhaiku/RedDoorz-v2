@@ -11,6 +11,11 @@
  *   blockeddates / ownerapplications / counters
  */
 
+// Firestore calls are network I/O — remove PHP's execution time limit so a
+// slow cold request or cache miss never triggers "Maximum execution time exceeded".
+// Individual curl calls are bounded by CURLOPT_TIMEOUT instead.
+set_time_limit(0);
+
 require_once __DIR__ . '/../vendor/autoload.php';
 
 use Kreait\Firebase\Factory;
@@ -209,8 +214,8 @@ function _fs_http_post(string $url, $body, string $ct = 'application/json'): arr
         CURLOPT_POSTFIELDS     => is_array($body) ? json_encode($body) : $body,
         CURLOPT_HTTPHEADER     => ["Content-Type: $ct"],
         CURLOPT_SSL_VERIFYPEER => true,
-        CURLOPT_CONNECTTIMEOUT => 8,   // fail if can't connect within 8s
-        CURLOPT_TIMEOUT        => 15,  // fail if full request takes >15s
+        CURLOPT_CONNECTTIMEOUT => 5,   // fail if can't connect within 5s
+        CURLOPT_TIMEOUT        => 8,   // fail if full request takes >8s
     ]);
     $out = curl_exec($ch);
     curl_close($ch);
@@ -228,8 +233,8 @@ function _fs_req(string $method, string $url, array $body = []): array {
             'Content-Type: application/json',
         ],
         CURLOPT_SSL_VERIFYPEER => true,
-        CURLOPT_CONNECTTIMEOUT => 8,   // fail if can't connect within 8s
-        CURLOPT_TIMEOUT        => 15,  // fail if full request takes >15s
+        CURLOPT_CONNECTTIMEOUT => 5,   // fail if can't connect within 5s
+        CURLOPT_TIMEOUT        => 8,   // fail if full request takes >8s
     ];
     if ($body) $opts[CURLOPT_POSTFIELDS] = json_encode($body);
     curl_setopt_array($ch, $opts);
