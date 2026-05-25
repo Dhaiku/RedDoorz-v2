@@ -187,8 +187,8 @@ function _fs_col_url(string $col): string {
 
 function _fs_query_url(): string {
     global $_FS_BASE_URL;
-    // runQuery endpoint is at the database level
-    return str_replace('/documents', ':runQuery', $_FS_BASE_URL);
+    // runQuery endpoint is at the documents level: .../documents:runQuery
+    return $_FS_BASE_URL . ':runQuery';
 }
 
 // ── Structured query builder ──────────────────────────────────────────────────
