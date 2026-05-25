@@ -15,13 +15,29 @@ $msg = ''; $error = '';
 
 // Add staff
 if (isset($_POST['add_staff']) && $hasTable) {
-    $name   = trim($conn->real_escape_string($_POST['staff_name']  ?? ''));
-    $role   = trim($conn->real_escape_string($_POST['staff_role']  ?? 'front_desk'));
-    $phone  = trim($conn->real_escape_string($_POST['staff_phone'] ?? ''));
-    $email  = trim($conn->real_escape_string($_POST['staff_email'] ?? ''));
-    if (!$name) {
-        $error = 'Staff name is required.';
+    $fname  = trim($conn->real_escape_string($_POST['staff_fname']  ?? ''));
+    $lname  = trim($conn->real_escape_string($_POST['staff_lname']  ?? ''));
+    $mi     = trim($conn->real_escape_string($_POST['staff_mi']     ?? ''));
+    $role   = trim($conn->real_escape_string($_POST['staff_role']   ?? 'front_desk'));
+    $phone  = trim($_POST['staff_phone'] ?? '');
+    $email  = trim($_POST['staff_email'] ?? '');
+
+    $fullName    = trim($fname . ' ' . $lname . ($mi ? ' ' . rtrim($mi, '.') . '.' : ''));
+    $phoneDigits = preg_replace('/\D/', '', $phone);
+
+    if (!$fname || !$lname) {
+        $error = 'First name and last name are required.';
+    } elseif ($email !== '' && (!filter_var($email, FILTER_VALIDATE_EMAIL) || !preg_match('/\.com$/i', $email))) {
+        $error = 'Please enter a valid email address ending in .com (e.g. staff@hotel.com).';
+    } elseif ($phone !== '' && (strlen($phoneDigits) !== 11 || substr($phoneDigits, 0, 2) !== '09')) {
+        $error = 'Phone number must be a valid 11-digit PH number starting with 09 (e.g. 0917-123-4567).';
     } else {
+        if ($phoneDigits) {
+            $phone = substr($phoneDigits,0,4).'-'.substr($phoneDigits,4,3).'-'.substr($phoneDigits,7,4);
+        }
+        $name  = $conn->real_escape_string($fullName);
+        $phone = $conn->real_escape_string($phone);
+        $email = $conn->real_escape_string($email);
         $conn->query("INSERT INTO HotelStaff (Staff_HotelId,Staff_OwnerId,Staff_Name,Staff_Role,Staff_Phone,Staff_Email) VALUES ($hotelId,$acctId,'$name','$role','$phone','$email')");
         $msg = 'Staff member added.';
     }
@@ -153,11 +169,21 @@ include "../layout/layout.php";
                 <h5 class="modal-title" style="font-size:16px; font-weight:700;">Add Staff Member</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-            <form method="POST">
+            <form method="POST" novalidate>
                 <div class="modal-body" style="padding:24px;">
-                    <div class="mb-3">
-                        <label class="form-label">Full Name <span style="color:var(--rd-red)">*</span></label>
-                        <input type="text" name="staff_name" class="form-control" placeholder="e.g. Maria Santos" required>
+                    <div class="row g-3 mb-3">
+                        <div class="col-5">
+                            <label class="form-label">First Name <span style="color:var(--rd-red)">*</span></label>
+                            <input type="text" name="staff_fname" class="form-control" placeholder="Maria" required>
+                        </div>
+                        <div class="col-5">
+                            <label class="form-label">Last Name <span style="color:var(--rd-red)">*</span></label>
+                            <input type="text" name="staff_lname" class="form-control" placeholder="Santos" required>
+                        </div>
+                        <div class="col-2">
+                            <label class="form-label">M.I.</label>
+                            <input type="text" name="staff_mi" class="form-control" placeholder="A." maxlength="3">
+                        </div>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Role</label>
@@ -169,15 +195,20 @@ include "../layout/layout.php";
                             <option value="manager">Manager</option>
                         </select>
                     </div>
-                    <div class="row g-3">
-                        <div class="col-6">
-                            <label class="form-label">Phone</label>
-                            <input type="tel" name="staff_phone" class="form-control" placeholder="0917-xxx-xxxx">
-                        </div>
-                        <div class="col-6">
-                            <label class="form-label">Email</label>
-                            <input type="email" name="staff_email" class="form-control" placeholder="staff@hotel.com">
-                        </div>
+                    <div class="mb-3">
+                        <label class="form-label">Phone Number</label>
+                        <input type="tel" name="staff_phone" id="staff_phone" class="form-control"
+                               placeholder="0917-123-4567" maxlength="13"
+                               oninput="formatStaffPhone(this)">
+                        <div style="font-size:11px; color:#aaa; margin-top:4px;">Format: xxxx-xxx-xxxx &bull; Must start with 09</div>
+                    </div>
+                    <div class="mb-0">
+                        <label class="form-label">Email Address</label>
+                        <input type="email" name="staff_email" class="form-control"
+                               placeholder="staff@hotel.com"
+                               pattern="[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.com"
+                               title="Email must end in .com (e.g. staff@hotel.com)">
+                        <div style="font-size:11px; color:#aaa; margin-top:4px;">Must end in .com if provided</div>
                     </div>
                 </div>
                 <div class="modal-footer" style="border-top:1px solid var(--rd-border); padding:16px 24px;">
@@ -188,5 +219,14 @@ include "../layout/layout.php";
         </div>
     </div>
 </div>
+
+<script>
+function formatStaffPhone(input) {
+    let v = input.value.replace(/\D/g, '').substring(0, 11);
+    if (v.length > 7)      v = v.substring(0,4) + '-' + v.substring(4,7) + '-' + v.substring(7);
+    else if (v.length > 4) v = v.substring(0,4) + '-' + v.substring(4);
+    input.value = v;
+}
+</script>
 
 <?php include "../layout/footer.php"; ?>
