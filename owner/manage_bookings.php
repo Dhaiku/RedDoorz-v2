@@ -1,6 +1,7 @@
 <?php
 session_start();
 require_once "../config/db.php";
+require_once "../config/notify.php";
 
 if (!isset($_SESSION['account_id']) || $_SESSION['role'] !== 'hotel_owner') {
     header("Location: /auth/login.php"); exit();
@@ -50,6 +51,22 @@ if (isset($_POST['update_status'])) {
                     $conn->query("UPDATE Earnings SET Earn_Status='voided' WHERE Earn_BookId=$bookId");
                 }
             }
+
+            // Push notification + Firestore sync on key status changes
+            $custAcctId = (int) $conn->query("SELECT a.Acct_Id FROM Customers c JOIN Accounts a ON a.Acct_Id=c.Cust_AcctId WHERE c.Cust_Id={$bRow['Book_CustId']} LIMIT 1")->fetch_assoc()['Acct_Id'];
+            $bookRef    = 'RD-' . str_pad($bookId, 4, '0', STR_PAD_LEFT);
+            $hotelName  = $conn->query("SELECT Hotel_Name FROM Hotels WHERE Hotel_Id=$hotelId LIMIT 1")->fetch_assoc()['Hotel_Name'];
+            $notifMap   = [
+                'confirmed'  => ['Booking Confirmed! 🎉', "Your booking {$bookRef} at {$hotelName} has been confirmed."],
+                'checked_in' => ['Checked In ✅',         "Welcome to {$hotelName}! Enjoy your stay."],
+                'completed'  => ['Stay Completed',        "Thank you for staying at {$hotelName}. We hope to see you again!"],
+                'cancelled'  => ['Booking Cancelled',     "Your booking {$bookRef} has been cancelled."],
+            ];
+            if (isset($notifMap[$newStatus])) {
+                [$nTitle, $nBody] = $notifMap[$newStatus];
+                sendPushNotification($conn, $custAcctId, $nTitle, $nBody, ['booking_id' => (string)$bookId]);
+            }
+            syncBookingToFirestore($conn, $bookId);
 
             $updateMsg = 'Booking #' . str_pad($bookId,4,'0',STR_PAD_LEFT) . ' updated.';
         }

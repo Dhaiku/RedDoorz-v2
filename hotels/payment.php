@@ -1,6 +1,7 @@
 ﻿<?php
 session_start();
 require_once "../config/db.php";
+require_once "../config/notify.php";
 
 if (!isset($_SESSION['account_id']) || $_SESSION['role'] !== 'customer') {
     header("Location: /auth/login.php"); exit();
@@ -104,6 +105,12 @@ if (isset($_POST['pay'])) {
                 // Hotel owner will confirm once payment is collected at the front desk.
                 $conn->query("UPDATE Bookings SET Book_Status='pending' WHERE Book_Id=$bookingId");
                 // No Earnings record yet — created when owner confirms payment.
+
+                // Notify customer: walk-in reservation received
+                $acctId = (int) $_SESSION['account_id'];
+                $bookRef = 'RD-' . str_pad($bookingId, 4, '0', STR_PAD_LEFT);
+                sendPushNotification($conn, $acctId, 'Reservation Received', "Your walk-in reservation {$bookRef} for {$booking['Hotel_Name']} is pending. Pay at the hotel to confirm.", ['booking_id' => (string)$bookingId]);
+                syncBookingToFirestore($conn, $bookingId);
             } else {
                 // Online payment: confirm immediately and record earnings.
                 $conn->query("UPDATE Bookings SET Book_Status='confirmed' WHERE Book_Id=$bookingId");
@@ -122,6 +129,12 @@ if (isset($_POST['pay'])) {
                             ($bookingId, $earnHotelId, $earnOwnerId, $total, $ownerShare, $platformFee, 'pending')
                     ");
                 }
+
+                // Notify customer: booking confirmed
+                $acctId = (int) $_SESSION['account_id'];
+                $bookRef = 'RD-' . str_pad($bookingId, 4, '0', STR_PAD_LEFT);
+                sendPushNotification($conn, $acctId, 'Booking Confirmed! 🎉', "Your booking {$bookRef} at {$booking['Hotel_Name']} is confirmed. See you on {$booking['Book_CheckIn']}!", ['booking_id' => (string)$bookingId]);
+                syncBookingToFirestore($conn, $bookingId);
             }
 
             header("Location: /customer/booking_detail.php?id=$bookingId&paid=1");

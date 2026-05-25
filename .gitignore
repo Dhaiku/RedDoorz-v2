@@ -12,3 +12,7 @@ skills-lock.json
 firebase-service-account.json
 serviceAccountKey.json
 google-services-admin.json
+
+# Composer vendor
+vendor/
+composer.lock
