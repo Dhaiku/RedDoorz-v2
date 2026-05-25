@@ -208,6 +208,71 @@ $imgSeed = 'reddoorz' . $hotelId;
                 <?php endif; ?>
             </div>
 
+            <!-- Guest Reviews -->
+            <?php
+            $hasReviewsTable = $conn->query("SHOW TABLES LIKE 'Reviews'")->num_rows > 0;
+            $reviews = null;
+            $reviewCount = 0;
+            if ($hasReviewsTable) {
+                $reviewCount = (int) $conn->query("SELECT COUNT(*) AS cnt FROM Reviews WHERE Review_HotelId=$hotelId")->fetch_assoc()['cnt'];
+                $reviews = $conn->query("
+                    SELECT rv.*, c.Cust_FName, c.Cust_LName
+                    FROM Reviews rv
+                    JOIN Customers c ON c.Cust_Id = rv.Review_CustId
+                    WHERE rv.Review_HotelId = $hotelId
+                    ORDER BY rv.Review_CreatedAt DESC
+                    LIMIT 5
+                ");
+            }
+            ?>
+            <?php if ($reviewCount > 0): ?>
+            <div style="background:#fff; border-radius:14px; padding:24px; box-shadow:var(--rd-shadow); margin-top:20px; border:1px solid rgba(228,223,223,0.5);" data-aos="fade-up">
+                <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; flex-wrap:wrap; gap:8px;">
+                    <h5 style="font-size:15px; font-weight:700; margin:0;">Guest Reviews</h5>
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <div style="display:flex; gap:2px;">
+                            <?php for ($s = 1; $s <= 5; $s++): ?>
+                            <i class="bi bi-star<?= $s <= round($hotel['Hotel_Rating']) ? '-fill' : '' ?>"
+                               style="font-size:14px; color:<?= $s <= round($hotel['Hotel_Rating']) ? '#C98A00' : '#DDD' ?>;"></i>
+                            <?php endfor; ?>
+                        </div>
+                        <span style="font-size:14px; font-weight:700; color:#333;"><?= number_format($hotel['Hotel_Rating'], 1) ?></span>
+                        <span style="font-size:12px; color:#aaa;">(<?= $reviewCount ?> review<?= $reviewCount != 1 ? 's' : '' ?>)</span>
+                    </div>
+                </div>
+                <div style="display:flex; flex-direction:column; gap:16px;">
+                <?php while ($rv = $reviews->fetch_assoc()): ?>
+                <div style="border-bottom:1px solid var(--rd-border); padding-bottom:16px;">
+                    <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:6px; flex-wrap:wrap; gap:6px;">
+                        <div style="display:flex; align-items:center; gap:9px;">
+                            <div style="width:34px; height:34px; border-radius:50%; background:var(--rd-red-pale); color:var(--rd-red); display:flex; align-items:center; justify-content:center; font-size:14px; font-weight:700; flex-shrink:0;">
+                                <?= strtoupper(substr($rv['Cust_FName'], 0, 1)) ?>
+                            </div>
+                            <div>
+                                <div style="font-size:13px; font-weight:700; color:#333;">
+                                    <?= htmlspecialchars($rv['Cust_FName'] . ' ' . substr($rv['Cust_LName'], 0, 1) . '.') ?>
+                                </div>
+                                <div style="font-size:11px; color:#aaa;"><?= date('M d, Y', strtotime($rv['Review_CreatedAt'])) ?></div>
+                            </div>
+                        </div>
+                        <div style="display:flex; gap:2px;">
+                            <?php for ($s = 1; $s <= 5; $s++): ?>
+                            <i class="bi bi-star<?= $s <= $rv['Review_Rating'] ? '-fill' : '' ?>"
+                               style="font-size:13px; color:<?= $s <= $rv['Review_Rating'] ? '#C98A00' : '#DDD' ?>;"></i>
+                            <?php endfor; ?>
+                        </div>
+                    </div>
+                    <?php if ($rv['Review_Comment']): ?>
+                    <p style="font-size:13px; color:#555; margin:0; line-height:1.65; padding-left:43px;">
+                        <?= htmlspecialchars($rv['Review_Comment']) ?>
+                    </p>
+                    <?php endif; ?>
+                </div>
+                <?php endwhile; ?>
+                </div>
+            </div>
+            <?php endif; ?>
+
         </div>
 
         <!-- ===== RIGHT: Sticky Summary ===== -->

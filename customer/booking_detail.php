@@ -65,6 +65,45 @@ if ($hasPaymentsTable) {
 
 $justPaid = isset($_GET['paid']) && $_GET['paid'] == '1';
 
+// Handle review submission
+$reviewMsg = '';
+$reviewError = '';
+if (isset($_POST['submit_review']) && $booking['Book_Status'] === 'completed') {
+    $rating  = (int) ($_POST['review_rating'] ?? 0);
+    $comment = trim($conn->real_escape_string($_POST['review_comment'] ?? ''));
+    if ($rating < 1 || $rating > 5) {
+        $reviewError = 'Please select a rating from 1 to 5 stars.';
+    } else {
+        $hasReviews = $conn->query("SHOW TABLES LIKE 'Reviews'")->num_rows > 0;
+        if ($hasReviews) {
+            $alreadyReviewed = $conn->query("SELECT Review_Id FROM Reviews WHERE Review_BookId=$bookId LIMIT 1")->num_rows > 0;
+            if ($alreadyReviewed) {
+                $reviewError = 'You have already rated this booking.';
+            } else {
+                $hId = (int) $booking['Book_HotelId'];
+                $cId = (int) $custId;
+                $conn->query("
+                    INSERT INTO Reviews (Review_BookId, Review_HotelId, Review_CustId, Review_Rating, Review_Comment)
+                    VALUES ($bookId, $hId, $cId, $rating, '$comment')
+                ");
+                // Recalculate hotel average rating
+                $avg = $conn->query("SELECT ROUND(AVG(Review_Rating),1) AS avg FROM Reviews WHERE Review_HotelId=$hId")->fetch_assoc()['avg'];
+                $conn->query("UPDATE Hotels SET Hotel_Rating=$avg WHERE Hotel_Id=$hId");
+                header("Location: booking_detail.php?id=$bookId&reviewed=1"); exit();
+            }
+        }
+    }
+}
+
+// Check if already reviewed
+$hasReviews = $conn->query("SHOW TABLES LIKE 'Reviews'")->num_rows > 0;
+$existingReview = null;
+if ($hasReviews) {
+    $existingReview = $conn->query("SELECT * FROM Reviews WHERE Review_BookId=$bookId LIMIT 1")->fetch_assoc();
+}
+
+$justReviewed = isset($_GET['reviewed']) && $_GET['reviewed'] == '1';
+
 $title = "Booking #" . $bookId;
 include "../layout/layout.php";
 $imgSeed = 'reddoorz' . $booking['Book_HotelId'];
@@ -82,6 +121,16 @@ $imgSeed = 'reddoorz' . $booking['Book_HotelId'];
                 <div>
                     <div style="font-weight:700; font-size:15px;">Payment Successful</div>
                     <div style="font-size:13px; opacity:0.85;">Your booking has been confirmed. A summary is shown below.</div>
+                </div>
+            </div>
+            <?php endif; ?>
+
+            <?php if ($justReviewed): ?>
+            <div style="background:#F0FFF4; border:1px solid #BBF7D0; border-radius:12px; padding:16px 20px; margin-bottom:24px; display:flex; align-items:center; gap:12px; color:#15803D;">
+                <i class="bi bi-star-fill" style="font-size:22px; flex-shrink:0;"></i>
+                <div>
+                    <div style="font-weight:700; font-size:15px;">Thank you for your review!</div>
+                    <div style="font-size:13px; opacity:0.85;">Your rating helps other guests find great hotels.</div>
                 </div>
             </div>
             <?php endif; ?>
@@ -303,6 +352,56 @@ $imgSeed = 'reddoorz' . $booking['Book_HotelId'];
             </div>
             <?php endif; ?>
 
+            <?php if ($booking['Book_Status'] === 'completed'): ?>
+            <!-- ===== Rate This Hotel ===== -->
+            <div style="background:#fff; border-radius:14px; padding:22px; box-shadow:var(--rd-shadow); margin-top:24px; border:1px solid rgba(228,223,223,0.5);">
+                <h6 style="font-size:13px; font-weight:700; margin-bottom:14px; display:flex; align-items:center; gap:7px;">
+                    <i class="bi bi-star-half" style="color:var(--rd-red);"></i> Rate Your Stay
+                </h6>
+
+                <?php if ($existingReview): ?>
+                    <!-- Already reviewed -->
+                    <div style="display:flex; align-items:flex-start; gap:16px;">
+                        <div>
+                            <div style="display:flex; gap:3px; margin-bottom:6px;">
+                                <?php for ($s = 1; $s <= 5; $s++): ?>
+                                <i class="bi bi-star<?= $s <= $existingReview['Review_Rating'] ? '-fill' : '' ?>"
+                                   style="font-size:20px; color:<?= $s <= $existingReview['Review_Rating'] ? '#C98A00' : '#DDD' ?>;"></i>
+                                <?php endfor; ?>
+                                <span style="font-size:14px; font-weight:700; color:#333; margin-left:6px; line-height:22px;"><?= $existingReview['Review_Rating'] ?>/5</span>
+                            </div>
+                            <?php if ($existingReview['Review_Comment']): ?>
+                            <p style="font-size:13px; color:#555; margin:0; line-height:1.6;">
+                                &ldquo;<?= htmlspecialchars($existingReview['Review_Comment']) ?>&rdquo;
+                            </p>
+                            <?php endif; ?>
+                            <div style="font-size:11px; color:#aaa; margin-top:6px;">
+                                Reviewed on <?= date('M d, Y', strtotime($existingReview['Review_CreatedAt'])) ?>
+                            </div>
+                        </div>
+                    </div>
+
+                <?php elseif ($reviewError): ?>
+                    <div class="alert-rd-danger mb-3" style="display:flex; align-items:center; gap:9px; font-size:13px;">
+                        <i class="bi bi-exclamation-circle"></i> <?= htmlspecialchars($reviewError) ?>
+                    </div>
+                    <button type="button" class="btn-rd" style="padding:9px 22px; font-size:13px;"
+                            data-bs-toggle="modal" data-bs-target="#rateModal">
+                        <i class="bi bi-star me-1"></i>Rate This Hotel
+                    </button>
+
+                <?php else: ?>
+                    <p style="font-size:13px; color:var(--rd-muted); margin:0 0 14px;">
+                        How was your stay at <strong><?= htmlspecialchars($booking['Hotel_Name']) ?></strong>? Your review helps other guests.
+                    </p>
+                    <button type="button" class="btn-rd" style="padding:9px 22px; font-size:13px;"
+                            data-bs-toggle="modal" data-bs-target="#rateModal">
+                        <i class="bi bi-star me-1"></i>Rate This Hotel
+                    </button>
+                <?php endif; ?>
+            </div>
+            <?php endif; ?>
+
         </div>
     </div>
 </div>
@@ -339,6 +438,88 @@ $imgSeed = 'reddoorz' . $booking['Book_HotelId'];
         </div>
     </div>
 </div>
+
+<?php if ($booking['Book_Status'] === 'completed' && !$existingReview): ?>
+<!-- ===== Rate Hotel Modal ===== -->
+<div class="modal fade" id="rateModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content" style="border-radius:14px; border:none; box-shadow:0 20px 60px rgba(0,0,0,0.18);">
+            <div class="modal-header" style="border-bottom:1px solid var(--rd-border); padding:20px 24px;">
+                <h5 class="modal-title" style="font-size:16px; font-weight:700;">
+                    <i class="bi bi-star-fill me-2" style="color:#C98A00;"></i>Rate Your Stay
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST">
+                <div class="modal-body" style="padding:24px;">
+                    <p style="font-size:13px; color:var(--rd-muted); margin-bottom:20px;">
+                        How would you rate <strong><?= htmlspecialchars($booking['Hotel_Name']) ?></strong>?
+                    </p>
+
+                    <!-- Star picker -->
+                    <div style="display:flex; justify-content:center; gap:8px; margin-bottom:20px;" id="starPicker">
+                        <?php for ($s = 1; $s <= 5; $s++): ?>
+                        <i class="bi bi-star" data-val="<?= $s ?>"
+                           style="font-size:36px; color:#DDD; cursor:pointer; transition:color 0.12s;"
+                           onclick="setRating(<?= $s ?>)"
+                           onmouseover="hoverRating(<?= $s ?>)"
+                           onmouseout="resetHover()"></i>
+                        <?php endfor; ?>
+                    </div>
+                    <input type="hidden" name="review_rating" id="review_rating" value="0">
+                    <div id="ratingLabel" style="text-align:center; font-size:13px; color:var(--rd-muted); margin-bottom:18px;">
+                        Click a star to rate
+                    </div>
+
+                    <div class="mb-2">
+                        <label class="form-label" style="font-size:13px;">Comment <span style="color:#aaa;">(optional)</span></label>
+                        <textarea name="review_comment" class="form-control" rows="3"
+                                  placeholder="Share your experience..." maxlength="500"
+                                  style="font-size:13px; resize:vertical;"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer" style="border-top:1px solid var(--rd-border); padding:16px 24px;">
+                    <button type="button" class="btn-rd-outline" data-bs-dismiss="modal" style="padding:9px 22px;">Cancel</button>
+                    <button type="submit" name="submit_review" id="submitReviewBtn" class="btn-rd" style="padding:9px 22px;" disabled>
+                        <i class="bi bi-check-lg me-1"></i>Submit Review
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+const ratingLabels = ['','Terrible','Poor','Okay','Good','Excellent'];
+let selectedRating = 0;
+
+function setRating(val) {
+    selectedRating = val;
+    document.getElementById('review_rating').value = val;
+    document.getElementById('ratingLabel').textContent = ratingLabels[val] + ' (' + val + '/5)';
+    document.getElementById('ratingLabel').style.color = '#C98A00';
+    document.getElementById('submitReviewBtn').disabled = false;
+    paintStars(val, true);
+}
+
+function hoverRating(val) { paintStars(val, false); }
+
+function resetHover() { paintStars(selectedRating, true); }
+
+function paintStars(upTo, selected) {
+    document.querySelectorAll('#starPicker i').forEach(function(el) {
+        const v = parseInt(el.dataset.val);
+        if (v <= upTo) {
+            el.classList.replace('bi-star', 'bi-star-fill');
+            el.style.color = '#C98A00';
+        } else {
+            el.classList.replace('bi-star-fill', 'bi-star');
+            el.style.color = '#DDD';
+        }
+    });
+}
+</script>
+<?php endif; ?>
 
 <?php include "../layout/footer.php"; ?>
 
