@@ -159,19 +159,21 @@ include "../layout/layout.php";
                     </div>
                 <?php endif; ?>
 
-                <form method="POST" novalidate>
+                <form method="POST" novalidate autocomplete="off">
 
                     <div class="mb-3">
                         <label class="form-label">Email Address</label>
                         <input type="email" name="email" class="form-control"
                                placeholder="you@email.com"
-                               value="<?= htmlspecialchars($_POST['email'] ?? '') ?>" required>
+                               autocomplete="off"
+                               value="" required>
                     </div>
 
                     <div class="mb-4">
                         <label class="form-label">Password</label>
                         <input type="password" name="password" class="form-control"
-                               placeholder="Enter your password" required>
+                               placeholder="Enter your password"
+                               autocomplete="new-password" required>
                     </div>
 
                     <button type="submit" name="login" class="btn-rd w-100"
