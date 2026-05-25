@@ -1,0 +1,1044 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RedDoorz — Project Workflow</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ── Reset & base ─────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --red:        #B80020;
+  --red-dark:   #880016;
+  --red-pale:   #FFF0F0;
+  --green:      #16A34A;
+  --green-pale: #F0FDF4;
+  --blue:       #2563EB;
+  --blue-pale:  #EFF6FF;
+  --purple:     #7C3AED;
+  --purple-pale:#F5F3FF;
+  --orange:     #EA580C;
+  --orange-pale:#FFF7ED;
+  --teal:       #0D9488;
+  --teal-pale:  #F0FDFA;
+  --gray:       #6B7280;
+  --border:     #E5E7EB;
+  --bg:         #F8F9FB;
+  --white:      #ffffff;
+  --text:       #111827;
+  --muted:      #6B7280;
+}
+
+body {
+  font-family: 'DM Sans', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  padding: 40px 24px 80px;
+}
+
+/* ── Page header ──────────────────────────────────────────────────────── */
+.page-header {
+  text-align: center;
+  margin-bottom: 56px;
+}
+
+.page-header .badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--red-pale);
+  color: var(--red);
+  border: 1px solid #FECACA;
+  border-radius: 20px;
+  padding: 5px 14px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 14px;
+}
+
+.page-header h1 {
+  font-size: clamp(28px, 4vw, 42px);
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  color: var(--text);
+  margin-bottom: 10px;
+}
+
+.page-header h1 span { color: var(--red); }
+
+.page-header p {
+  font-size: 15px;
+  color: var(--muted);
+  max-width: 520px;
+  margin: 0 auto;
+  line-height: 1.6;
+}
+
+/* ── Section title ────────────────────────────────────────────────────── */
+.section-title {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--muted);
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.section-title::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+/* ── Layout wrapper ───────────────────────────────────────────────────── */
+.workflow {
+  max-width: 1300px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 48px;
+}
+
+/* ── Role columns ─────────────────────────────────────────────────────── */
+.roles-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+}
+
+@media (max-width: 900px) {
+  .roles-row { grid-template-columns: 1fr; }
+}
+
+/* ── Role lane ────────────────────────────────────────────────────────── */
+.lane {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+}
+
+.lane-header {
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.lane-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.lane-header h2 {
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.lane-header p {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 2px 0 0;
+}
+
+.lane-body {
+  padding: 0 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* ── Step card ────────────────────────────────────────────────────────── */
+.step {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: var(--bg);
+  position: relative;
+  transition: box-shadow 0.15s, transform 0.15s;
+}
+
+.step:hover {
+  box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+  transform: translateY(-1px);
+}
+
+.step-num {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin-bottom: 4px;
+  opacity: 0.6;
+}
+
+.step-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 3px;
+}
+
+.step-desc {
+  font-size: 11.5px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.step-file {
+  display: inline-block;
+  margin-top: 6px;
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-family: 'Courier New', monospace;
+}
+
+/* ── Arrow connector ──────────────────────────────────────────────────── */
+.arrow {
+  text-align: center;
+  color: var(--border);
+  font-size: 18px;
+  line-height: 1;
+  margin: 2px 0;
+  user-select: none;
+}
+
+/* ── Color themes per role ────────────────────────────────────────────── */
+/* Customer — blue */
+.lane.customer .lane-header { background: var(--blue-pale); border-bottom: 1px solid #BFDBFE; }
+.lane.customer .lane-icon   { background: #DBEAFE; color: var(--blue); }
+.lane.customer .step-num    { color: var(--blue); }
+.lane.customer .step-file   { background: #DBEAFE; color: var(--blue); }
+.lane.customer .step:hover  { border-color: #93C5FD; }
+
+/* Owner — green */
+.lane.owner .lane-header { background: var(--green-pale); border-bottom: 1px solid #BBF7D0; }
+.lane.owner .lane-icon   { background: #DCFCE7; color: var(--green); }
+.lane.owner .step-num    { color: var(--green); }
+.lane.owner .step-file   { background: #DCFCE7; color: var(--green); }
+.lane.owner .step:hover  { border-color: #86EFAC; }
+
+/* Admin — red */
+.lane.admin .lane-header { background: var(--red-pale); border-bottom: 1px solid #FECACA; }
+.lane.admin .lane-icon   { background: #FEE2E2; color: var(--red); }
+.lane.admin .step-num    { color: var(--red); }
+.lane.admin .step-file   { background: #FEE2E2; color: var(--red); }
+.lane.admin .step:hover  { border-color: #FCA5A5; }
+
+/* ── System / shared flows ────────────────────────────────────────────── */
+.flow-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.flow-card {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 20px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+}
+
+.flow-card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.flow-card-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.flow-card-header h3 {
+  font-size: 13px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.flow-card-header p {
+  font-size: 11px;
+  color: var(--muted);
+  margin: 2px 0 0;
+}
+
+.flow-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.flow-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.flow-step-dot {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.flow-step-text strong {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.flow-step-text span {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+/* ── Tech stack ───────────────────────────────────────────────────────── */
+.tech-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.tech-item {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+}
+
+.tech-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.tech-item strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.tech-item span {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* ── Data flow diagram ────────────────────────────────────────────────── */
+.data-flow {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 28px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+}
+
+.df-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  flex-wrap: wrap;
+  row-gap: 16px;
+}
+
+.df-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 100px;
+}
+
+.df-box {
+  border-radius: 10px;
+  padding: 10px 18px;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+  border: 1.5px solid transparent;
+  white-space: nowrap;
+}
+
+.df-label {
+  font-size: 10px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.df-arrow {
+  font-size: 20px;
+  color: #CBD5E1;
+  padding: 0 4px;
+  user-select: none;
+  align-self: center;
+}
+
+/* ── Legend ───────────────────────────────────────────────────────────── */
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  justify-content: center;
+  padding: 20px;
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+</style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     PAGE HEADER
+══════════════════════════════════════════════════════════════════════ -->
+<div class="page-header">
+  <div class="badge">📋 System Documentation</div>
+  <h1><span>RedDoorz</span> Project Workflow</h1>
+  <p>Full system map — user roles, booking lifecycle, admin operations, and tech architecture.</p>
+</div>
+
+<div class="workflow">
+
+  <!-- ── Legend ──────────────────────────────────────────────────────── -->
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:#2563EB;"></div> Customer Flow</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#16A34A;"></div> Hotel Owner Flow</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#B80020;"></div> Admin Flow</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#7C3AED;"></div> Shared / System</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#EA580C;"></div> Firebase / API</div>
+  </div>
+
+  <!-- ── Section 1: Authentication ──────────────────────────────────── -->
+  <div>
+    <div class="section-title">① Authentication</div>
+    <div class="flow-grid">
+
+      <div class="flow-card">
+        <div class="flow-card-header">
+          <div class="flow-card-icon" style="background:#DBEAFE; color:#2563EB;">🔐</div>
+          <div><h3>Email / Password Login</h3><p>All roles — customer, owner, admin</p></div>
+        </div>
+        <div class="flow-steps">
+          <div class="flow-step">
+            <div class="flow-step-dot" style="background:#DBEAFE; color:#2563EB;">1</div>
+            <div class="flow-step-text"><strong>Visit /auth/login.php</strong><span>Enter email + password</span></div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-dot" style="background:#DBEAFE; color:#2563EB;">2</div>
+            <div class="flow-step-text"><strong>fs_find('accounts')</strong><span>Lookup by email + status=active in Firestore</span></div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-dot" style="background:#DBEAFE; color:#2563EB;">3</div>
+            <div class="flow-step-text"><strong>password_verify()</strong><span>Bcrypt hash check</span></div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-dot" style="background:#DBEAFE; color:#2563EB;">4</div>
+            <div class="flow-step-text"><strong>$_SESSION set</strong><span>account_id, role, name → redirect by role</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="flow-card">
+        <div class="flow-card-header">
+          <div class="flow-card-icon" style="background:#FEE2E2; color:#B80020;">📱</div>
+          <div><h3>Google Sign-In (Android)</h3><p>Firebase Auth → PHP API</p></div>
+        </div>
+        <div class="flow-steps">
+          <div class="flow-step">
+            <div class="flow-step-dot" style="background:#FEE2E2; color:#B80020;">1</div>
+            <div class="flow-step-text"><strong>GoogleAuthHelper.kt</strong><span>Android triggers Google Sign-In, gets Firebase ID token</span></div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-dot" style="background:#FEE2E2; color:#B80020;">2</div>
+            <div class="flow-step-text"><strong>POST /api/verify_google_token.php</strong><span>Send id_token to PHP backend</span></div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-dot" style="background:#FEE2E2; color:#B80020;">3</div>
+            <div class="flow-step-text"><strong>kreait verifyIdToken()</strong><span>Validate Firebase token server-side</span></div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-dot" style="background:#FEE2E2; color:#B80020;">4</div>
+            <div class="flow-step-text"><strong>Auto-create or link account</strong><span>fs_find by email → fs_insert if new</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="flow-card">
+        <div class="flow-card-header">
+          <div class="flow-card-icon" style="background:#F5F3FF; color:#7C3AED;">✏️</div>
+          <div><h3>Registration</h3><p>New customer accounts</p></div>
+        </div>
+        <div class="flow-steps">
+          <div class="flow-step">
+            <div class="flow-step-dot" style="background:#F5F3FF; color:#7C3AED;">1</div>
+            <div class="flow-step-text"><strong>/auth/register.php</strong><span>Name, email, password form</span></div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-dot" style="background:#F5F3FF; color:#7C3AED;">2</div>
+            <div class="flow-step-text"><strong>Duplicate check</strong><span>fs_find('accounts') by email</span></div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-dot" style="background:#F5F3FF; color:#7C3AED;">3</div>
+            <div class="flow-step-text"><strong>password_hash()</strong><span>Bcrypt before storing</span></div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-dot" style="background:#F5F3FF; color:#7C3AED;">4</div>
+            <div class="flow-step-text"><strong>fs_insert accounts + customers</strong><span>Two Firestore documents created</span></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── Section 2: Role Flows ───────────────────────────────────────── -->
+  <div>
+    <div class="section-title">② Role-Based Workflows</div>
+    <div class="roles-row">
+
+      <!-- CUSTOMER -->
+      <div class="lane customer">
+        <div class="lane-header">
+          <div class="lane-icon">👤</div>
+          <div><h2>Customer</h2><p>Browse, book, pay, review</p></div>
+        </div>
+        <div class="lane-body">
+
+          <div class="step">
+            <div class="step-num">Step 1</div>
+            <div class="step-title">Browse Homepage</div>
+            <div class="step-desc">Featured hotels (top rated) + Browse by Location city cards</div>
+            <span class="step-file">index.php</span>
+          </div>
+          <div class="arrow">↓</div>
+
+          <div class="step">
+            <div class="step-num">Step 2</div>
+            <div class="step-title">Search Hotels</div>
+            <div class="step-desc">Filter by city/name + optional date range. PHP-side filtering from Firestore results.</div>
+            <span class="step-file">hotels/search.php</span>
+          </div>
+          <div class="arrow">↓</div>
+
+          <div class="step">
+            <div class="step-num">Step 3</div>
+            <div class="step-title">View Hotel Detail</div>
+            <div class="step-desc">Rooms list, availability check, guest reviews, hotel info</div>
+            <span class="step-file">hotels/hotel_detail.php</span>
+          </div>
+          <div class="arrow">↓</div>
+
+          <div class="step">
+            <div class="step-num">Step 4</div>
+            <div class="step-title">Book a Room</div>
+            <div class="step-desc">Select dates & guests. Overlap check vs existing bookings + blocked dates. Generate ref code.</div>
+            <span class="step-file">hotels/book.php</span>
+          </div>
+          <div class="arrow">↓</div>
+
+          <div class="step">
+            <div class="step-num">Step 5</div>
+            <div class="step-title">Payment</div>
+            <div class="step-desc">Online (GCash/Card) → confirmed + earnings record created. Walk-in → stays pending.</div>
+            <span class="step-file">hotels/payment.php</span>
+          </div>
+          <div class="arrow">↓</div>
+
+          <div class="step">
+            <div class="step-num">Step 6</div>
+            <div class="step-title">My Bookings Dashboard</div>
+            <div class="step-desc">View booking history, statuses, booking details</div>
+            <span class="step-file">customer/dashboard.php</span>
+          </div>
+          <div class="arrow">↓</div>
+
+          <div class="step">
+            <div class="step-num">Step 7</div>
+            <div class="step-title">Leave a Review</div>
+            <div class="step-desc">After stay completes, submit star rating + comment on hotel</div>
+            <span class="step-file">customer/booking_detail.php</span>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- HOTEL OWNER -->
+      <div class="lane owner">
+        <div class="lane-header">
+          <div class="lane-icon">🏨</div>
+          <div><h2>Hotel Owner</h2><p>Manage hotel, rooms, bookings</p></div>
+        </div>
+        <div class="lane-body">
+
+          <div class="step">
+            <div class="step-num">Step 1</div>
+            <div class="step-title">Apply as Partner</div>
+            <div class="step-desc">Submit hotel name, city, room count, contact. Creates ownerapplications record.</div>
+            <span class="step-file">owner/apply.php</span>
+          </div>
+          <div class="arrow">↓</div>
+
+          <div class="step">
+            <div class="step-num">Step 2</div>
+            <div class="step-title">Admin Approval</div>
+            <div class="step-desc">Admin reviews application, creates owner account + hotel record, sends credentials</div>
+            <span class="step-file">admin/manage_owners.php</span>
+          </div>
+          <div class="arrow">↓</div>
+
+          <div class="step">
+            <div class="step-num">Step 3</div>
+            <div class="step-title">Owner Dashboard</div>
+            <div class="step-desc">Overview: today's bookings, earnings snapshot, occupancy stats</div>
+            <span class="step-file">owner/dashboard.php</span>
+          </div>
+          <div class="arrow">↓</div>
+
+          <div class="step">
+            <div class="step-num">Step 4</div>
+            <div class="step-title">Manage Rooms</div>
+            <div class="step-desc">Add/edit/delete rooms. Set type, price, capacity. Block dates for maintenance.</div>
+            <span class="step-file">owner/manage_rooms.php</span>
+          </div>
+          <div class="arrow">↓</div>
+
+          <div class="step">
+            <div class="step-num">Step 5</div>
+            <div class="step-title">Handle Bookings</div>
+            <div class="step-desc">Confirm walk-in payments, mark check-in/check-out, cancel if needed</div>
+            <span class="step-file">owner/manage_bookings.php</span>
+          </div>
+          <div class="arrow">↓</div>
+
+          <div class="step">
+            <div class="step-num">Step 6</div>
+            <div class="step-title">Track Earnings</div>
+            <div class="step-desc">View earnings per booking. 85% owner share / 15% platform fee split.</div>
+            <span class="step-file">owner/earnings.php</span>
+          </div>
+          <div class="arrow">↓</div>
+
+          <div class="step">
+            <div class="step-num">Step 7</div>
+            <div class="step-title">Manage Staff</div>
+            <div class="step-desc">Add front desk staff with roles and contact info for the hotel</div>
+            <span class="step-file">owner/manage_staff.php</span>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- ADMIN -->
+      <div class="lane admin">
+        <div class="lane-header">
+          <div class="lane-icon">🛡️</div>
+          <div><h2>Admin</h2><p>Platform oversight & control</p></div>
+        </div>
+        <div class="lane-body">
+
+          <div class="step">
+            <div class="step-num">Step 1</div>
+            <div class="step-title">Dashboard Overview</div>
+            <div class="step-desc">Total bookings, revenue, cancellation rate, avg rating, pending payments alert</div>
+            <span class="step-file">admin/dashboard.php</span>
+          </div>
+          <div class="arrow">↓</div>
+
+          <div class="step">
+            <div class="step-num">Step 2</div>
+            <div class="step-title">Manage Hotels</div>
+            <div class="step-desc">Activate/deactivate hotels, edit details, monitor all properties</div>
+            <span class="step-file">admin/manage_hotels.php</span>
+          </div>
+          <div class="arrow">↓</div>
+
+          <div class="step">
+            <div class="step-num">Step 3</div>
+            <div class="step-title">Manage Rooms</div>
+            <div class="step-desc">Oversee all rooms across hotels, filter by hotel, update status</div>
+            <span class="step-file">admin/manage_rooms.php</span>
+          </div>
+          <div class="arrow">↓</div>
+
+          <div class="step">
+            <div class="step-num">Step 4</div>
+            <div class="step-title">Manage Bookings</div>
+            <div class="step-desc">View/filter all bookings platform-wide, override statuses, flag issues</div>
+            <span class="step-file">admin/manage_bookings.php</span>
+          </div>
+          <div class="arrow">↓</div>
+
+          <div class="step">
+            <div class="step-num">Step 5</div>
+            <div class="step-title">Manage Customers</div>
+            <div class="step-desc">View all customer accounts, booking history, suspend accounts</div>
+            <span class="step-file">admin/manage_customers.php</span>
+          </div>
+          <div class="arrow">↓</div>
+
+          <div class="step">
+            <div class="step-num">Step 6</div>
+            <div class="step-title">Manage Hotel Owners</div>
+            <div class="step-desc">Review applications, approve/reject, create owner accounts</div>
+            <span class="step-file">admin/manage_owners.php</span>
+          </div>
+          <div class="arrow">↓</div>
+
+          <div class="step">
+            <div class="step-num">Step 7</div>
+            <div class="step-title">Manage Payouts</div>
+            <div class="step-desc">Review payout requests from owners, approve or reject with notes</div>
+            <span class="step-file">admin/manage_payouts.php</span>
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── Section 3: Booking Lifecycle ──────────────────────────────── -->
+  <div>
+    <div class="section-title">③ Booking Lifecycle</div>
+    <div class="data-flow">
+      <div style="text-align:center; margin-bottom:24px;">
+        <div style="font-size:13px; font-weight:600; color:var(--muted);">Status transitions from creation to completion</div>
+      </div>
+      <div class="df-row">
+
+        <div class="df-node">
+          <div class="df-box" style="background:#F5F3FF; color:#7C3AED; border-color:#C4B5FD;">🛒 Created</div>
+          <div class="df-label">book.php</div>
+        </div>
+        <div class="df-arrow">→</div>
+
+        <div class="df-node">
+          <div class="df-box" style="background:#FFFBEB; color:#D97706; border-color:#FCD34D;">⏳ Pending</div>
+          <div class="df-label">Awaiting payment</div>
+        </div>
+        <div class="df-arrow">→</div>
+
+        <div class="df-node">
+          <div class="df-box" style="background:#F0FDF4; color:#16A34A; border-color:#86EFAC;">✅ Confirmed</div>
+          <div class="df-label">Online paid</div>
+        </div>
+        <div class="df-arrow">→</div>
+
+        <div class="df-node">
+          <div class="df-box" style="background:#EFF6FF; color:#2563EB; border-color:#93C5FD;">🏨 Checked In</div>
+          <div class="df-label">Owner confirms</div>
+        </div>
+        <div class="df-arrow">→</div>
+
+        <div class="df-node">
+          <div class="df-box" style="background:#F0FDFA; color:#0D9488; border-color:#5EEAD4;">🏁 Completed</div>
+          <div class="df-label">Check-out done</div>
+        </div>
+
+      </div>
+
+      <!-- Cancellation branch -->
+      <div style="text-align:center; margin-top:20px; padding-top:20px; border-top:1px dashed var(--border);">
+        <div style="display:inline-flex; align-items:center; gap:12px; flex-wrap:wrap; justify-content:center;">
+          <div class="df-box" style="background:#FFFBEB; color:#D97706; border-color:#FCD34D;">⏳ Pending</div>
+          <div class="df-arrow" style="color:#FCA5A5;">→</div>
+          <div class="df-box" style="background:#FEF2F2; color:#DC2626; border-color:#FCA5A5;">❌ Cancelled</div>
+          <div style="font-size:11px; color:var(--muted); margin-left:6px;">Customer or owner cancels before check-in</div>
+        </div>
+      </div>
+
+      <!-- Earnings note -->
+      <div style="margin-top:20px; padding:14px 18px; background:#F0FDF4; border:1px solid #BBF7D0; border-radius:10px; font-size:12px; color:#15803D; display:flex; align-items:center; gap:10px;">
+        <span style="font-size:18px;">💰</span>
+        <span><strong>Earnings created on confirmation:</strong> Total split as <strong>85% owner share</strong> + <strong>15% platform fee</strong>. Stored in <code style="background:#DCFCE7; padding:1px 5px; border-radius:3px;">earnings</code> collection. Owner requests payout via <code style="background:#DCFCE7; padding:1px 5px; border-radius:3px;">payoutrequests</code>.</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Section 4: Data Layer ──────────────────────────────────────── -->
+  <div>
+    <div class="section-title">④ Data Layer — Firestore Collections</div>
+    <div class="flow-grid">
+
+      <div class="flow-card">
+        <div class="flow-card-header">
+          <div class="flow-card-icon" style="background:#FEE2E2; color:#B80020;">👤</div>
+          <div><h3>User Collections</h3><p>Accounts &amp; profiles</p></div>
+        </div>
+        <div class="flow-steps">
+          <div class="flow-step">
+            <div class="flow-step-dot" style="background:#FEE2E2; color:#B80020;">●</div>
+            <div class="flow-step-text"><strong>accounts</strong><span>email, password (bcrypt), role, status, firebaseUid</span></div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-dot" style="background:#FEE2E2; color:#B80020;">●</div>
+            <div class="flow-step-text"><strong>customers</strong><span>acctId, firstName, lastName, phone</span></div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-dot" style="background:#FEE2E2; color:#B80020;">●</div>
+            <div class="flow-step-text"><strong>fcmtokens</strong><span>acctId, FCM token for push notifications</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="flow-card">
+        <div class="flow-card-header">
+          <div class="flow-card-icon" style="background:#DCFCE7; color:#16A34A;">🏨</div>
+          <div><h3>Hotel Collections</h3><p>Properties &amp; rooms</p></div>
+        </div>
+        <div class="flow-steps">
+          <div class="flow-step">
+            <div class="flow-step-dot" style="background:#DCFCE7; color:#16A34A;">●</div>
+            <div class="flow-step-text"><strong>hotels</strong><span>name, city, address, rating, status, ownerId</span></div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-dot" style="background:#DCFCE7; color:#16A34A;">●</div>
+            <div class="flow-step-text"><strong>rooms</strong><span>hotelId, type, price, capacity, status</span></div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-dot" style="background:#DCFCE7; color:#16A34A;">●</div>
+            <div class="flow-step-text"><strong>blockeddates</strong><span>roomId, hotelId, dateFrom, dateTo, reason</span></div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-dot" style="background:#DCFCE7; color:#16A34A;">●</div>
+            <div class="flow-step-text"><strong>hotelstaff</strong><span>hotelId, name, role, email, phone</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="flow-card">
+        <div class="flow-card-header">
+          <div class="flow-card-icon" style="background:#DBEAFE; color:#2563EB;">📋</div>
+          <div><h3>Transaction Collections</h3><p>Bookings &amp; money</p></div>
+        </div>
+        <div class="flow-steps">
+          <div class="flow-step">
+            <div class="flow-step-dot" style="background:#DBEAFE; color:#2563EB;">●</div>
+            <div class="flow-step-text"><strong>bookings</strong><span>custId, hotelId, roomId, checkIn/Out, status, refCode</span></div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-dot" style="background:#DBEAFE; color:#2563EB;">●</div>
+            <div class="flow-step-text"><strong>payments</strong><span>bookId, method, amount, status, refCode</span></div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-dot" style="background:#DBEAFE; color:#2563EB;">●</div>
+            <div class="flow-step-text"><strong>earnings</strong><span>bookId, ownerShare (85%), platformFee (15%)</span></div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-dot" style="background:#DBEAFE; color:#2563EB;">●</div>
+            <div class="flow-step-text"><strong>payoutrequests</strong><span>ownerId, amount, method, accountNo, status</span></div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-dot" style="background:#DBEAFE; color:#2563EB;">●</div>
+            <div class="flow-step-text"><strong>reviews</strong><span>bookId, hotelId, custId, rating, comment</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="flow-card">
+        <div class="flow-card-header">
+          <div class="flow-card-icon" style="background:#FFF7ED; color:#EA580C;">⚙️</div>
+          <div><h3>System Collections</h3><p>Internal helpers</p></div>
+        </div>
+        <div class="flow-steps">
+          <div class="flow-step">
+            <div class="flow-step-dot" style="background:#FFF7ED; color:#EA580C;">●</div>
+            <div class="flow-step-text"><strong>counters</strong><span>Replaces AUTO_INCREMENT — tracks next ID per collection</span></div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-dot" style="background:#FFF7ED; color:#EA580C;">●</div>
+            <div class="flow-step-text"><strong>ownerapplications</strong><span>Hotel partner applications awaiting admin review</span></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── Section 5: System Architecture ────────────────────────────── -->
+  <div>
+    <div class="section-title">⑤ System Architecture</div>
+    <div class="data-flow">
+      <div class="df-row" style="gap:0; justify-content:center;">
+
+        <div class="df-node" style="min-width:120px;">
+          <div class="df-box" style="background:#EFF6FF; color:#2563EB; border-color:#93C5FD; text-align:center;">
+            🌐<br><span style="font-size:11px;">Web Browser</span><br><span style="font-size:10px; opacity:0.7;">localhost:8014</span>
+          </div>
+          <div class="df-label">Customer / Admin / Owner</div>
+        </div>
+        <div class="df-arrow">→</div>
+
+        <div class="df-node" style="min-width:120px;">
+          <div class="df-box" style="background:#FFF7ED; color:#EA580C; border-color:#FED7AA; text-align:center;">
+            🖥️<br><span style="font-size:11px;">Apache + PHP 8.2</span><br><span style="font-size:10px; opacity:0.7;">XAMPP / C:/RedDoorz</span>
+          </div>
+          <div class="df-label">Application Server</div>
+        </div>
+        <div class="df-arrow">→</div>
+
+        <div class="df-node" style="min-width:120px;">
+          <div class="df-box" style="background:#FEE2E2; color:#B80020; border-color:#FCA5A5; text-align:center;">
+            💾<br><span style="font-size:11px;">Disk Cache</span><br><span style="font-size:10px; opacity:0.7;">cache/*.json (TTL)</span>
+          </div>
+          <div class="df-label">Local cache layer</div>
+        </div>
+        <div class="df-arrow">→</div>
+
+        <div class="df-node" style="min-width:120px;">
+          <div class="df-box" style="background:#F0FDFA; color:#0D9488; border-color:#5EEAD4; text-align:center;">
+            🔥<br><span style="font-size:11px;">Firestore REST</span><br><span style="font-size:10px; opacity:0.7;">reddoorz-8f605</span>
+          </div>
+          <div class="df-label">Primary database</div>
+        </div>
+        <div class="df-arrow">→</div>
+
+        <div class="df-node" style="min-width:120px;">
+          <div class="df-box" style="background:#F5F3FF; color:#7C3AED; border-color:#C4B5FD; text-align:center;">
+            🔔<br><span style="font-size:11px;">Firebase FCM</span><br><span style="font-size:10px; opacity:0.7;">Push notifications</span>
+          </div>
+          <div class="df-label">Android notifications</div>
+        </div>
+
+      </div>
+
+      <div style="margin-top:20px; padding-top:20px; border-top:1px dashed var(--border);">
+        <div class="df-row" style="justify-content:center; gap:8px;">
+          <div class="df-node" style="min-width:140px;">
+            <div class="df-box" style="background:#DBEAFE; color:#2563EB; border-color:#93C5FD; text-align:center; font-size:11px;">
+              📱 Android App<br><span style="font-size:10px; opacity:0.7;">Kotlin / Jetpack Compose</span>
+            </div>
+            <div class="df-label">Mobile client</div>
+          </div>
+          <div class="df-arrow">→</div>
+          <div class="df-node" style="min-width:140px;">
+            <div class="df-box" style="background:#FFF7ED; color:#EA580C; border-color:#FED7AA; text-align:center; font-size:11px;">
+              🔗 REST API<br><span style="font-size:10px; opacity:0.7;">/api/*.php endpoints</span>
+            </div>
+            <div class="df-label">API bridge</div>
+          </div>
+          <div class="df-arrow">→</div>
+          <div class="df-node" style="min-width:140px;">
+            <div class="df-box" style="background:#F0FDFA; color:#0D9488; border-color:#5EEAD4; text-align:center; font-size:11px;">
+              🔥 Firestore<br><span style="font-size:10px; opacity:0.7;">Same database</span>
+            </div>
+            <div class="df-label">Shared data store</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Section 6: Tech Stack ──────────────────────────────────────── -->
+  <div>
+    <div class="section-title">⑥ Tech Stack</div>
+    <div class="tech-grid">
+      <div class="tech-item">
+        <div class="tech-icon" style="background:#FFF7ED; color:#EA580C;">🐘</div>
+        <div><strong>PHP 8.2</strong><span>Backend — Apache via XAMPP</span></div>
+      </div>
+      <div class="tech-item">
+        <div class="tech-icon" style="background:#F0FDFA; color:#0D9488;">🔥</div>
+        <div><strong>Firestore REST API</strong><span>Database — no MySQL, no gRPC</span></div>
+      </div>
+      <div class="tech-item">
+        <div class="tech-icon" style="background:#EFF6FF; color:#2563EB;">🅱️</div>
+        <div><strong>Bootstrap 5</strong><span>UI framework + Bootstrap Icons</span></div>
+      </div>
+      <div class="tech-item">
+        <div class="tech-icon" style="background:#F5F3FF; color:#7C3AED;">🔑</div>
+        <div><strong>Firebase Auth</strong><span>Google Sign-In + token verify</span></div>
+      </div>
+      <div class="tech-item">
+        <div class="tech-icon" style="background:#FEE2E2; color:#B80020;">🔔</div>
+        <div><strong>Firebase FCM</strong><span>Push notifications to Android</span></div>
+      </div>
+      <div class="tech-item">
+        <div class="tech-icon" style="background:#DBEAFE; color:#2563EB;">📱</div>
+        <div><strong>Kotlin / Jetpack</strong><span>Android app (Compose UI)</span></div>
+      </div>
+      <div class="tech-item">
+        <div class="tech-icon" style="background:#DCFCE7; color:#16A34A;">💾</div>
+        <div><strong>PHP Disk Cache</strong><span>JSON TTL cache — 2ms page loads</span></div>
+      </div>
+      <div class="tech-item">
+        <div class="tech-icon" style="background:#FEF9C3; color:#A16207;">🔐</div>
+        <div><strong>OAuth2 / JWT (RS256)</strong><span>Service account token for Firestore</span></div>
+      </div>
+      <div class="tech-item">
+        <div class="tech-icon" style="background:#F5F3FF; color:#7C3AED;">🐙</div>
+        <div><strong>GitHub</strong><span>Dhaiku/RedDoorz-v2 — main branch</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Footer ──────────────────────────────────────────────────────── -->
+  <div style="text-align:center; padding-top:8px; border-top:1px solid var(--border);">
+    <p style="font-size:12px; color:var(--muted);">RedDoorz Hotel Booking Platform &mdash; Workflow Document &mdash; May 2026</p>
+  </div>
+
+</div><!-- /workflow -->
+</body>
+</html>
