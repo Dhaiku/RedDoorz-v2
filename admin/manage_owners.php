@@ -6,42 +6,40 @@ if (!isset($_SESSION['account_id']) || $_SESSION['role'] !== 'admin') {
     header("Location: /auth/login.php"); exit();
 }
 
-$hasAppsTable = $conn->query("SHOW TABLES LIKE 'OwnerApplications'")->num_rows > 0;
 $msg = ''; $error = '';
 
 // Approve application: create account + hotel, link owner
-if (isset($_POST['approve_app']) && $hasAppsTable) {
+if (isset($_POST['approve_app'])) {
     $appId = (int) $_POST['app_id'];
-    $app   = $conn->query("SELECT * FROM OwnerApplications WHERE App_Id=$appId LIMIT 1")->fetch_assoc();
-    if ($app && $app['App_Status'] === 'pending') {
-        // Create account with hotel_owner role
-        $email    = $conn->real_escape_string($app['App_Email']);
-        $name     = $conn->real_escape_string($app['App_FullName']);
-        $tmpPass  = password_hash(
-            $conn->real_escape_string($_POST['tmp_pass'] ?? 'reddoorz123'),
-            PASSWORD_DEFAULT
-        );
+    $app   = fs_get('ownerapplications', $appId);
+    if ($app && $app['status'] === 'pending') {
+        $email   = $app['acctEmail']  ?? $app['email'] ?? '';
+        $tmpPass = password_hash($_POST['tmp_pass'] ?? 'reddoorz123', PASSWORD_DEFAULT);
 
-        // Check for duplicate email before inserting
-        $emailExists = $conn->query("SELECT Acct_Id FROM Accounts WHERE Acct_Email='$email' LIMIT 1")->num_rows > 0;
+        // Check for duplicate email
+        $emailExists = fs_find('accounts', [['email', '=', $email]]);
         if ($emailExists) {
-            $error = "An account with email '{$app['App_Email']}' already exists. Cannot create duplicate.";
+            $error = "An account with email '{$email}' already exists. Cannot create duplicate.";
         } else {
-            $conn->query("INSERT INTO Accounts (Acct_Email, Acct_Password, Acct_Role, Acct_Status, Acct_MustChangePassword) VALUES ('$email','$tmpPass','hotel_owner','active',1)");
-        }
-        $newAcctId = $emailExists ? 0 : $conn->insert_id;
+            $newAcctId = fs_insert('accounts', [
+                'email'              => $email,
+                'password'           => $tmpPass,
+                'role'               => 'hotel_owner',
+                'status'             => 'active',
+                'mustChangePassword' => true,
+            ]);
 
-        if ($newAcctId) {
-            // Create hotel record
-            $hotelName = $conn->real_escape_string($app['App_HotelName']);
-            $hotelCity = $conn->real_escape_string($app['App_HotelCity']);
-            $hotelAddr = $conn->real_escape_string($app['App_HotelAddress']);
-            $conn->query("INSERT INTO Hotels (Hotel_Name, Hotel_City, Hotel_Address, Hotel_OwnerId, Hotel_Status) VALUES ('$hotelName','$hotelCity','$hotelAddr',$newAcctId,'active')");
-            // Mark app as approved
-            $conn->query("UPDATE OwnerApplications SET App_Status='approved' WHERE App_Id=$appId");
-            $msg = "Application approved. Account created for {$app['App_FullName']} with temporary password: reddoorz123";
-        } else {
-            $error = "Email already exists. Cannot create duplicate account.";
+            fs_insert('hotels', [
+                'name'    => $app['hotelName']    ?? '',
+                'city'    => $app['city']         ?? '',
+                'address' => $app['address']      ?? '',
+                'ownerId' => $newAcctId,
+                'status'  => 'active',
+                'rating'  => 0.0,
+            ]);
+
+            fs_update('ownerapplications', $appId, ['status' => 'approved']);
+            $msg = "Application approved. Account created with temporary password: reddoorz123";
         }
     }
     if ($msg)   { header("Location: manage_owners.php?msg=" . urlencode($msg)); exit(); }
@@ -49,9 +47,9 @@ if (isset($_POST['approve_app']) && $hasAppsTable) {
 }
 
 // Reject application
-if (isset($_POST['reject_app']) && $hasAppsTable) {
+if (isset($_POST['reject_app'])) {
     $appId = (int) $_POST['app_id'];
-    $conn->query("UPDATE OwnerApplications SET App_Status='rejected' WHERE App_Id=$appId");
+    fs_update('ownerapplications', $appId, ['status' => 'rejected']);
     header("Location: manage_owners.php?msg=Application+rejected."); exit();
 }
 
@@ -59,21 +57,27 @@ if (isset($_POST['reject_app']) && $hasAppsTable) {
 if (isset($_POST['toggle_owner'])) {
     $acctId    = (int) $_POST['acct_id'];
     $newStatus = $_POST['new_status'] === 'active' ? 'active' : 'suspended';
-    $conn->query("UPDATE Accounts SET Acct_Status='$newStatus' WHERE Acct_Id=$acctId AND Acct_Role='hotel_owner'");
+    fs_update('accounts', $acctId, ['status' => $newStatus]);
     header("Location: manage_owners.php?msg=Owner+account+updated."); exit();
 }
 
 // Fetch owners
-$owners = $conn->query("
-    SELECT a.Acct_Id, a.Acct_Email, a.Acct_Status, h.Hotel_Id, h.Hotel_Name, h.Hotel_City
-    FROM Accounts a
-    LEFT JOIN Hotels h ON h.Hotel_OwnerId = a.Acct_Id
-    WHERE a.Acct_Role = 'hotel_owner'
-    ORDER BY a.Acct_Id DESC
-");
+$ownerAccounts = fs_query('accounts', [['role', '=', 'hotel_owner']], [['id', 'DESC']]);
+$owners = [];
+foreach ($ownerAccounts as $o) {
+    $hotel = fs_find('hotels', [['ownerId', '=', $o['id']]]);
+    $owners[] = [
+        'acctId'    => $o['id'],
+        'email'     => $o['email'],
+        'status'    => $o['status'],
+        'hotelId'   => $hotel['id']   ?? null,
+        'hotelName' => $hotel['name'] ?? '',
+        'hotelCity' => $hotel['city'] ?? '',
+    ];
+}
 
 // Fetch pending applications
-$applications = $hasAppsTable ? $conn->query("SELECT * FROM OwnerApplications ORDER BY App_CreatedAt DESC") : null;
+$applications = fs_all('ownerapplications', [['createdAt', 'DESC']]);
 
 $title = "Manage Hotel Owners";
 include "../layout/layout.php";
@@ -117,32 +121,30 @@ include "../layout/layout.php";
                         </tr>
                     </thead>
                     <tbody>
-                    <?php if (!$owners || $owners->num_rows === 0): ?>
+                    <?php if (empty($owners)): ?>
                     <tr><td colspan="5" style="text-align:center; padding:30px; color:#999;">No hotel owner accounts yet.</td></tr>
                     <?php endif; ?>
-                    <?php while ($o = $owners ? $owners->fetch_assoc() : null):
-                        if (!$o) break;
-                    ?>
+                    <?php foreach ($owners as $o): ?>
                     <tr>
-                        <td><?= htmlspecialchars($o['Acct_Email']) ?></td>
-                        <td style="font-weight:600;"><?= htmlspecialchars($o['Hotel_Name'] ?? '—') ?></td>
-                        <td style="color:#555;"><?= htmlspecialchars($o['Hotel_City'] ?? '—') ?></td>
+                        <td><?= htmlspecialchars($o['email']) ?></td>
+                        <td style="font-weight:600;"><?= htmlspecialchars($o['hotelName'] ?: '—') ?></td>
+                        <td style="color:#555;"><?= htmlspecialchars($o['hotelCity'] ?: '—') ?></td>
                         <td>
-                            <?= $o['Acct_Status'] === 'active'
+                            <?= $o['status'] === 'active'
                                 ? '<span class="badge-confirmed">Active</span>'
                                 : '<span class="badge-cancelled">Suspended</span>' ?>
                         </td>
                         <td>
                             <form method="POST" style="margin:0;" onsubmit="return confirm('Toggle owner account status?');">
-                                <input type="hidden" name="acct_id" value="<?= $o['Acct_Id'] ?>">
-                                <input type="hidden" name="new_status" value="<?= $o['Acct_Status'] === 'active' ? 'suspended' : 'active' ?>">
+                                <input type="hidden" name="acct_id" value="<?= $o['acctId'] ?>">
+                                <input type="hidden" name="new_status" value="<?= $o['status'] === 'active' ? 'suspended' : 'active' ?>">
                                 <button type="submit" name="toggle_owner" class="btn-rd-outline" style="font-size:12px; padding:5px 14px;">
-                                    <?= $o['Acct_Status'] === 'active' ? 'Suspend' : 'Activate' ?>
+                                    <?= $o['status'] === 'active' ? 'Suspend' : 'Activate' ?>
                                 </button>
                             </form>
                         </td>
                     </tr>
-                    <?php endwhile; ?>
+                    <?php endforeach; ?>
                     </tbody>
                 </table>
             </div>
@@ -150,11 +152,6 @@ include "../layout/layout.php";
 
         <!-- Partner Applications -->
         <h5 style="font-size:15px; font-weight:700; margin-bottom:14px;">Partner Applications</h5>
-        <?php if (!$hasAppsTable): ?>
-        <div style="background:#FFF8E1; border:1px solid #FFE082; border-radius:8px; padding:14px; color:#7B5800; font-size:13px;">
-            <i class="bi bi-exclamation-triangle me-2"></i>Run <code>config/migration_owner.sql</code> to enable partner applications.
-        </div>
-        <?php else: ?>
         <div class="table-rd">
             <div style="overflow-x:auto;">
                 <table class="table mb-0" style="font-size:14px;">
@@ -164,42 +161,42 @@ include "../layout/layout.php";
                             <th>Email</th>
                             <th>Hotel</th>
                             <th>City</th>
-                            <th>Rooms</th>
                             <th>Applied</th>
                             <th>Status</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody>
-                    <?php if ($applications->num_rows === 0): ?>
-                    <tr><td colspan="8" style="text-align:center; padding:30px; color:#999;">No applications yet.</td></tr>
+                    <?php if (empty($applications)): ?>
+                    <tr><td colspan="7" style="text-align:center; padding:30px; color:#999;">No applications yet.</td></tr>
                     <?php endif; ?>
-                    <?php while ($app = $applications->fetch_assoc()):
-                        $appBadge = match($app['App_Status']) {
+                    <?php foreach ($applications as $app):
+                        $appBadge = match($app['status'] ?? '') {
                             'approved' => '<span class="badge-confirmed">Approved</span>',
                             'rejected' => '<span class="badge-cancelled">Rejected</span>',
                             default    => '<span class="badge-pending">Pending</span>',
                         };
+                        $applicantName = $app['applicantName'] ?? $app['acctFullName'] ?? '';
+                        $applicantEmail = $app['acctEmail'] ?? $app['email'] ?? '';
                     ?>
                     <tr>
-                        <td style="font-weight:600;"><?= htmlspecialchars($app['App_FullName']) ?></td>
-                        <td style="color:#555;"><?= htmlspecialchars($app['App_Email']) ?></td>
-                        <td><?= htmlspecialchars($app['App_HotelName']) ?></td>
-                        <td style="color:#555;"><?= htmlspecialchars($app['App_HotelCity']) ?></td>
-                        <td><?= $app['App_RoomCount'] ?></td>
-                        <td style="color:#999;"><?= date('M d, Y', strtotime($app['App_CreatedAt'])) ?></td>
+                        <td style="font-weight:600;"><?= htmlspecialchars($applicantName) ?></td>
+                        <td style="color:#555;"><?= htmlspecialchars($applicantEmail) ?></td>
+                        <td><?= htmlspecialchars($app['hotelName'] ?? '') ?></td>
+                        <td style="color:#555;"><?= htmlspecialchars($app['city'] ?? '') ?></td>
+                        <td style="color:#999;"><?= isset($app['createdAt']) ? date('M d, Y', strtotime($app['createdAt'])) : '—' ?></td>
                         <td><?= $appBadge ?></td>
                         <td>
-                            <?php if ($app['App_Status'] === 'pending'): ?>
+                            <?php if (($app['status'] ?? '') === 'pending'): ?>
                             <div style="display:flex; gap:7px;">
                                 <form method="POST" style="margin:0;" onsubmit="return confirm('Approve this application and create an owner account?');">
-                                    <input type="hidden" name="app_id" value="<?= $app['App_Id'] ?>">
+                                    <input type="hidden" name="app_id" value="<?= $app['id'] ?>">
                                     <button type="submit" name="approve_app" class="btn-rd" style="font-size:12px; padding:5px 12px;">
                                         Approve
                                     </button>
                                 </form>
                                 <form method="POST" style="margin:0;" onsubmit="return confirm('Reject this application?');">
-                                    <input type="hidden" name="app_id" value="<?= $app['App_Id'] ?>">
+                                    <input type="hidden" name="app_id" value="<?= $app['id'] ?>">
                                     <button type="submit" name="reject_app" style="font-size:12px; background:#FEF2F2; color:#B91C1C; border:1px solid #FECACA; border-radius:6px; padding:5px 12px; cursor:pointer; font-weight:600; font-family:'DM Sans',sans-serif;">
                                         Reject
                                     </button>
@@ -210,12 +207,11 @@ include "../layout/layout.php";
                             <?php endif; ?>
                         </td>
                     </tr>
-                    <?php endwhile; ?>
+                    <?php endforeach; ?>
                     </tbody>
                 </table>
             </div>
         </div>
-        <?php endif; ?>
 
     </div>
 </div>

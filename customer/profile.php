@@ -13,34 +13,40 @@ $success = "";
 $error   = "";
 
 // Load current data
-$acct = $conn->query("SELECT a.*, c.Cust_FName, c.Cust_LName, c.Cust_Phone
-    FROM Accounts a JOIN Customers c ON c.Cust_AcctId = a.Acct_Id
-    WHERE a.Acct_Id=$acctId LIMIT 1")->fetch_assoc();
+$acctRow = fs_get('accounts', $acctId);
+$custRow = fs_get('customers', $custId);
+
+$acct = array_merge($acctRow ?? [], [
+    'custFName' => $custRow['firstName'] ?? '',
+    'custLName' => $custRow['lastName']  ?? '',
+    'custPhone' => $custRow['phone']     ?? '',
+]);
 
 // UPDATE PROFILE
 if (isset($_POST['update_profile'])) {
-    $fname = trim($conn->real_escape_string($_POST['fname']));
-    $lname = trim($conn->real_escape_string($_POST['lname']));
-    $phone = trim($conn->real_escape_string($_POST['phone'] ?? ''));
+    $fname = trim($_POST['fname']);
+    $lname = trim($_POST['lname']);
+    $phone = trim($_POST['phone'] ?? '');
 
-    // Validate phone: strip dashes, must be empty or exactly 11 digits starting with 09
     $phoneDigits = preg_replace('/\D/', '', $phone);
     if ($phone !== '' && (strlen($phoneDigits) !== 11 || substr($phoneDigits, 0, 2) !== '09')) {
         $error = "Phone number must be a valid 11-digit PH number starting with 09 (e.g. 0917-123-4567).";
     } elseif (!$fname || !$lname) {
         $error = "First and last name are required.";
     } else {
-        // Store in xxxx-xxx-xxxx format
         if ($phoneDigits) {
             $phone = substr($phoneDigits,0,4).'-'.substr($phoneDigits,4,3).'-'.substr($phoneDigits,7,4);
         }
-        $phone = $conn->real_escape_string($phone);
-        $conn->query("UPDATE Customers SET Cust_FName='$fname', Cust_LName='$lname', Cust_Phone='$phone' WHERE Cust_Id=$custId");
+        fs_update('customers', $custId, [
+            'firstName' => $fname,
+            'lastName'  => $lname,
+            'phone'     => $phone,
+        ]);
         $_SESSION['display_name'] = $fname . ' ' . $lname;
         $success = "Profile updated successfully.";
-        $acct['Cust_FName'] = $fname;
-        $acct['Cust_LName'] = $lname;
-        $acct['Cust_Phone'] = $phone;
+        $acct['custFName'] = $fname;
+        $acct['custLName'] = $lname;
+        $acct['custPhone'] = $phone;
     }
 }
 
@@ -50,7 +56,7 @@ if (isset($_POST['change_password'])) {
     $new     = $_POST['new_password'];
     $confirm = $_POST['confirm_password'];
 
-    if (!password_verify($current, $acct['Acct_Password'])) {
+    if (!password_verify($current, $acct['password'] ?? '')) {
         $error = "Current password is incorrect.";
     } elseif (strlen($new) < 6) {
         $error = "New password must be at least 6 characters.";
@@ -58,21 +64,21 @@ if (isset($_POST['change_password'])) {
         $error = "New passwords do not match.";
     } else {
         $hashed = password_hash($new, PASSWORD_DEFAULT);
-        $conn->query("UPDATE Accounts SET Acct_Password='$hashed' WHERE Acct_Id=$acctId");
+        fs_update('accounts', $acctId, ['password' => $hashed]);
         $success = "Password changed successfully.";
     }
 }
 
 // Booking stats
-$stats = $conn->query("
-    SELECT
-        COUNT(*) AS total,
-        SUM(CASE WHEN Book_Status='confirmed' THEN 1 ELSE 0 END) AS confirmed,
-        SUM(CASE WHEN Book_Status='completed' THEN 1 ELSE 0 END) AS completed,
-        SUM(CASE WHEN Book_Status='cancelled' THEN 1 ELSE 0 END) AS cancelled,
-        COALESCE(SUM(CASE WHEN Book_Status IN ('confirmed','completed') THEN Book_TotalPrice ELSE 0 END), 0) AS spent
-    FROM Bookings WHERE Book_CustId=$custId
-")->fetch_assoc();
+$allBookings      = fs_query('bookings', [['custId', '=', $custId]]);
+$totalBookings    = count($allBookings);
+$confirmedCount   = count(array_filter($allBookings, fn($b) => $b['status'] === 'confirmed'));
+$completedCount   = count(array_filter($allBookings, fn($b) => $b['status'] === 'completed'));
+$cancelledCount   = count(array_filter($allBookings, fn($b) => $b['status'] === 'cancelled'));
+$totalSpent       = array_sum(array_map(
+    fn($b) => in_array($b['status'], ['confirmed','completed']) ? (float)$b['totalPrice'] : 0,
+    $allBookings
+));
 
 $title = "My Profile";
 include "../layout/layout.php";
@@ -107,18 +113,18 @@ include "../layout/layout.php";
                         <i class="bi bi-person-fill"></i>
                     </div>
                     <div style="font-size:17px; font-weight:700; color:#111; margin-bottom:3px;">
-                        <?= htmlspecialchars($acct['Cust_FName'] . ' ' . $acct['Cust_LName']) ?>
+                        <?= htmlspecialchars($acct['custFName'] . ' ' . $acct['custLName']) ?>
                     </div>
                     <div style="font-size:12px; color:var(--rd-muted); margin-bottom:12px;">
-                        <?= htmlspecialchars($acct['Acct_Email']) ?>
+                        <?= htmlspecialchars($acct['email'] ?? '') ?>
                     </div>
                     <span style="background:var(--rd-red-pale); color:var(--rd-red); font-size:11px; font-weight:600; padding:4px 12px; border-radius:20px; border:1px solid rgba(184,0,32,0.15);">
                         <i class="bi bi-patch-check-fill me-1"></i>Customer
                     </span>
-                    <?php if ($acct['Cust_Phone']): ?>
+                    <?php if ($acct['custPhone']): ?>
                     <div style="margin-top:14px; font-size:12px; color:#666; display:flex; align-items:center; justify-content:center; gap:6px;">
                         <i class="bi bi-telephone-fill" style="color:var(--rd-red); font-size:11px;"></i>
-                        <?= htmlspecialchars($acct['Cust_Phone']) ?>
+                        <?= htmlspecialchars($acct['custPhone']) ?>
                     </div>
                     <?php endif; ?>
                 </div>
@@ -126,10 +132,10 @@ include "../layout/layout.php";
                 <!-- Quick stats column -->
                 <?php
                 $sideStats = [
-                    ['bi-calendar-check', '#EFF6FF', '#2563EB', $stats['total'],     'Total Bookings'],
-                    ['bi-check-circle',   '#F0FFF4', '#16A34A', $stats['confirmed'], 'Confirmed'],
-                    ['bi-house-check',    '#FFFBEB', '#D97706', $stats['completed'], 'Completed'],
-                    ['bi-x-circle',       '#FFF1F1', '#B80020', $stats['cancelled'] ?? 0, 'Cancelled'],
+                    ['bi-calendar-check', '#EFF6FF', '#2563EB', $totalBookings,  'Total Bookings'],
+                    ['bi-check-circle',   '#F0FFF4', '#16A34A', $confirmedCount, 'Confirmed'],
+                    ['bi-house-check',    '#FFFBEB', '#D97706', $completedCount, 'Completed'],
+                    ['bi-x-circle',       '#FFF1F1', '#B80020', $cancelledCount, 'Cancelled'],
                 ];
                 foreach ($sideStats as [$icon, $bg, $col, $val, $lbl]):
                 ?>
@@ -150,7 +156,7 @@ include "../layout/layout.php";
                         <i class="bi bi-cash-coin"></i>
                     </div>
                     <div>
-                        <div style="font-size:18px; font-weight:800; color:#fff; line-height:1;">&#8369;<?= number_format($stats['spent']) ?></div>
+                        <div style="font-size:18px; font-weight:800; color:#fff; line-height:1;">&#8369;<?= number_format($totalSpent) ?></div>
                         <div style="font-size:11px; color:rgba(255,255,255,0.75); margin-top:2px;">Total Spent</div>
                     </div>
                 </div>
@@ -170,17 +176,17 @@ include "../layout/layout.php";
                             <div class="col-sm-6">
                                 <label class="form-label">First Name <span style="color:var(--rd-red)">*</span></label>
                                 <input type="text" name="fname" class="form-control"
-                                       value="<?= htmlspecialchars($acct['Cust_FName']) ?>" required>
+                                       value="<?= htmlspecialchars($acct['custFName']) ?>" required>
                             </div>
                             <div class="col-sm-6">
                                 <label class="form-label">Last Name <span style="color:var(--rd-red)">*</span></label>
                                 <input type="text" name="lname" class="form-control"
-                                       value="<?= htmlspecialchars($acct['Cust_LName']) ?>" required>
+                                       value="<?= htmlspecialchars($acct['custLName']) ?>" required>
                             </div>
                             <div class="col-sm-6">
                                 <label class="form-label">Email Address</label>
                                 <input type="email" class="form-control"
-                                       value="<?= htmlspecialchars($acct['Acct_Email']) ?>" disabled
+                                       value="<?= htmlspecialchars($acct['email'] ?? '') ?>" disabled
                                        style="background:#F5F2F2; color:#888;">
                                 <div style="font-size:11px; color:#aaa; margin-top:4px;"><i class="bi bi-lock-fill me-1"></i>Email cannot be changed</div>
                             </div>
@@ -189,7 +195,7 @@ include "../layout/layout.php";
                                 <input type="tel" name="phone" id="phone" class="form-control"
                                        placeholder="e.g. 0917-123-4567" maxlength="13"
                                        oninput="formatPhone(this)"
-                                       value="<?= htmlspecialchars($acct['Cust_Phone'] ?? '') ?>">
+                                       value="<?= htmlspecialchars($acct['custPhone']) ?>">
                                 <div style="font-size:11px; color:#aaa; margin-top:4px;">Format: xxxx-xxx-xxxx</div>
                             </div>
                         </div>

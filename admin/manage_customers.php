@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 session_start();
 require_once "../config/db.php";
 
@@ -12,29 +12,52 @@ $message = "";
 if (isset($_POST['toggle_status'])) {
     $acctId    = (int) $_POST['acct_id'];
     $newStatus = $_POST['current_status'] === 'active' ? 'inactive' : 'active';
-    $conn->query("UPDATE Accounts SET Acct_Status='$newStatus' WHERE Acct_Id=$acctId AND Acct_Role='customer'");
+    fs_update('accounts', $acctId, ['status' => $newStatus]);
     $message = "Account " . ($newStatus === 'active' ? 'activated' : 'deactivated') . ".";
 }
 
-$search = $conn->real_escape_string(trim($_GET['search'] ?? ''));
-$filterStatus = $conn->real_escape_string($_GET['status'] ?? '');
+$search       = strtolower(trim($_GET['search'] ?? ''));
+$filterStatus = $_GET['status'] ?? '';
 
-$where = "WHERE a.Acct_Role='customer'";
-if ($search) $where .= " AND (c.Cust_FName LIKE '%$search%' OR c.Cust_LName LIKE '%$search%' OR a.Acct_Email LIKE '%$search%')";
-if ($filterStatus) $where .= " AND a.Acct_Status='$filterStatus'";
+// Fetch all customer accounts
+$custAccounts = fs_query('accounts', array_filter([
+    ['role', '=', 'customer'],
+    $filterStatus ? ['status', '=', $filterStatus] : null,
+], fn($x) => $x !== null));
 
-$customers = $conn->query("
-    SELECT a.Acct_Id, a.Acct_Email, a.Acct_Status, a.Acct_CreatedAt,
-           c.Cust_Id, c.Cust_FName, c.Cust_LName, c.Cust_Phone,
-           COUNT(b.Book_Id) AS BookingCount,
-           COALESCE(SUM(CASE WHEN b.Book_Status IN ('confirmed','completed') THEN b.Book_TotalPrice ELSE 0 END), 0) AS TotalSpent
-    FROM Accounts a
-    JOIN Customers c ON c.Cust_AcctId = a.Acct_Id
-    LEFT JOIN Bookings b ON b.Book_CustId = c.Cust_Id
-    $where
-    GROUP BY a.Acct_Id
-    ORDER BY a.Acct_CreatedAt DESC
-");
+// Build enriched list
+$customers = [];
+foreach ($custAccounts as $acct) {
+    $cust = fs_find('customers', [['acctId', '=', $acct['id']]]);
+    if (!$cust) continue;
+
+    // PHP-side search filter
+    if ($search) {
+        $haystack = strtolower(($cust['firstName'] ?? '').' '.($cust['lastName'] ?? '').' '.($acct['email'] ?? ''));
+        if (strpos($haystack, $search) === false) continue;
+    }
+
+    // Booking stats
+    $custBookings = fs_query('bookings', [['custId', '=', $cust['id']]]);
+    $bookingCount = count($custBookings);
+    $totalSpent   = array_sum(array_map(
+        fn($b) => in_array($b['status'], ['confirmed','completed']) ? (float)($b['totalPrice'] ?? 0) : 0,
+        $custBookings
+    ));
+
+    $customers[] = [
+        'acctId'       => $acct['id'],
+        'email'        => $acct['email'],
+        'status'       => $acct['status'],
+        'createdAt'    => $acct['createdAt'] ?? '',
+        'custId'       => $cust['id'],
+        'firstName'    => $cust['firstName'] ?? '',
+        'lastName'     => $cust['lastName']  ?? '',
+        'phone'        => $cust['phone']     ?? '',
+        'bookingCount' => $bookingCount,
+        'totalSpent'   => $totalSpent,
+    ];
+}
 
 $title = "Manage Customers";
 include "../layout/layout.php";
@@ -69,7 +92,7 @@ include "../layout/layout.php";
             <a href="manage_customers.php" style="font-size:13px; color:#999; align-self:center; text-decoration:none;">Clear</a>
         </form>
 
-        <p style="font-size:13px; color:#999; margin-bottom:16px;"><?= $customers->num_rows ?> customer<?= $customers->num_rows != 1 ? 's' : '' ?> found</p>
+        <p style="font-size:13px; color:#999; margin-bottom:16px;"><?= count($customers) ?> customer<?= count($customers) != 1 ? 's' : '' ?> found</p>
 
         <!-- Table -->
         <div style="background:#fff; border-radius:14px; box-shadow:0 2px 12px rgba(0,0,0,0.07); overflow:hidden;">
@@ -87,47 +110,47 @@ include "../layout/layout.php";
                         </tr>
                     </thead>
                     <tbody>
-                    <?php if ($customers->num_rows === 0): ?>
+                    <?php if (empty($customers)): ?>
                         <tr><td colspan="7" style="padding:40px; text-align:center; color:#999;">No customers found.</td></tr>
-                    <?php else: while ($c = $customers->fetch_assoc()): ?>
+                    <?php else: foreach ($customers as $c): ?>
                     <tr style="border-bottom:1px solid #F8F8F8;">
                         <td style="padding:14px 16px;">
-                            <div style="font-weight:700; font-size:14px;"><?= htmlspecialchars($c['Cust_FName'].' '.$c['Cust_LName']) ?></div>
-                            <div style="font-size:12px; color:var(--rd-muted); margin-top:2px;"><?= htmlspecialchars($c['Acct_Email']) ?></div>
+                            <div style="font-weight:700; font-size:14px;"><?= htmlspecialchars($c['firstName'].' '.$c['lastName']) ?></div>
+                            <div style="font-size:12px; color:var(--rd-muted); margin-top:2px;"><?= htmlspecialchars($c['email']) ?></div>
                         </td>
                         <td style="padding:14px 16px; font-size:13px; color:#555;">
-                            <?= $c['Cust_Phone'] ? htmlspecialchars($c['Cust_Phone']) : '<span style="color:#bbb;">—</span>' ?>
+                            <?= $c['phone'] ? htmlspecialchars($c['phone']) : '<span style="color:#bbb;">—</span>' ?>
                         </td>
-                        <td style="padding:14px 16px; text-align:center; font-weight:700; color:#444;"><?= $c['BookingCount'] ?></td>
+                        <td style="padding:14px 16px; text-align:center; font-weight:700; color:#444;"><?= $c['bookingCount'] ?></td>
                         <td style="padding:14px 16px; text-align:right; font-weight:700; color:var(--rd-red); white-space:nowrap;">
-                            &#8369;<?= number_format($c['TotalSpent']) ?>
+                            &#8369;<?= number_format($c['totalSpent']) ?>
                         </td>
                         <td style="padding:14px 16px; color:#555; font-size:13px; white-space:nowrap;">
-                            <?= date('M d, Y', strtotime($c['Acct_CreatedAt'])) ?>
+                            <?= $c['createdAt'] ? date('M d, Y', strtotime($c['createdAt'])) : '—' ?>
                         </td>
                         <td style="padding:14px 16px; text-align:center;">
-                            <?php if ($c['Acct_Status'] === 'active'): ?>
+                            <?php if ($c['status'] === 'active'): ?>
                                 <span class="badge-confirmed">Active</span>
                             <?php else: ?>
                                 <span class="badge-cancelled">Inactive</span>
                             <?php endif; ?>
                         </td>
                         <td style="padding:14px 16px; text-align:center;">
-                            <form method="POST" style="margin:0;" onsubmit="return confirm('<?= $c['Acct_Status']==='active' ? 'Deactivate' : 'Activate' ?> this account?')">
-                                <input type="hidden" name="acct_id" value="<?= $c['Acct_Id'] ?>">
-                                <input type="hidden" name="current_status" value="<?= $c['Acct_Status'] ?>">
+                            <form method="POST" style="margin:0;" onsubmit="return confirm('<?= $c['status']==='active' ? 'Deactivate' : 'Activate' ?> this account?')">
+                                <input type="hidden" name="acct_id" value="<?= $c['acctId'] ?>">
+                                <input type="hidden" name="current_status" value="<?= $c['status'] ?>">
                                 <button type="submit" name="toggle_status" style="
-                                    font-size:12px; border:1.5px solid <?= $c['Acct_Status']==='active' ? '#DDD' : 'var(--rd-red)' ?>;
-                                    background:none; color:<?= $c['Acct_Status']==='active' ? '#888' : 'var(--rd-red)' ?>;
+                                    font-size:12px; border:1.5px solid <?= $c['status']==='active' ? '#DDD' : 'var(--rd-red)' ?>;
+                                    background:none; color:<?= $c['status']==='active' ? '#888' : 'var(--rd-red)' ?>;
                                     border-radius:6px; padding:5px 14px; cursor:pointer;
                                     font-weight:600; font-family:'DM Sans',sans-serif;
                                 ">
-                                    <?= $c['Acct_Status'] === 'active' ? 'Deactivate' : 'Activate' ?>
+                                    <?= $c['status'] === 'active' ? 'Deactivate' : 'Activate' ?>
                                 </button>
                             </form>
                         </td>
                     </tr>
-                    <?php endwhile; endif; ?>
+                    <?php endforeach; endif; ?>
                     </tbody>
                 </table>
             </div>

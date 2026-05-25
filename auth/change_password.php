@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 session_start();
 require_once "../config/db.php";
 
@@ -20,14 +20,12 @@ if (isset($_POST['change_password'])) {
     } else {
         $hashed = password_hash($newPwd, PASSWORD_DEFAULT);
         $id     = (int) $_SESSION['account_id'];
-        $stmt   = $conn->prepare("UPDATE Accounts SET Acct_Password=?, Acct_MustChangePassword=0 WHERE Acct_Id=?");
-        $stmt->bind_param("si", $hashed, $id);
-        if ($stmt->execute()) {
-            session_destroy();
-            header("Location: login.php"); exit();
-        } else {
-            $error = "Error updating password.";
-        }
+        fs_update('accounts', $id, [
+            'password'          => $hashed,
+            'mustChangePassword' => 0,
+        ]);
+        session_destroy();
+        header("Location: login.php"); exit();
     }
 }
 

@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 session_start();
 require_once "../config/db.php";
 
@@ -6,29 +6,35 @@ if (!isset($_SESSION['account_id']) || $_SESSION['role'] !== 'admin') {
     header("Location: /auth/login.php"); exit();
 }
 
-$totalHotels    = $conn->query("SELECT COUNT(*) c FROM Hotels WHERE Hotel_Status='active'")->fetch_assoc()['c'];
-$totalRooms     = $conn->query("SELECT COUNT(*) c FROM Rooms WHERE Room_Status='available'")->fetch_assoc()['c'];
-$totalBookings  = $conn->query("SELECT COUNT(*) c FROM Bookings")->fetch_assoc()['c'];
-$totalRevenue   = $conn->query("SELECT COALESCE(SUM(Book_TotalPrice),0) r FROM Bookings WHERE Book_Status IN ('confirmed','completed')")->fetch_assoc()['r'];
-$totalCustomers = $conn->query("SELECT COUNT(*) c FROM Accounts WHERE Acct_Role='customer' AND Acct_Status='active'")->fetch_assoc()['c'];
-$pendingPayments= $conn->query("SELECT COUNT(*) c FROM Bookings WHERE Book_Status='pending'")->fetch_assoc()['c'];
+$totalHotels    = fs_count('hotels',   [['status', '=', 'active']]);
+$totalRooms     = fs_count('rooms',    [['status', '=', 'available']]);
+$totalBookings  = fs_count('bookings', []);
+$totalCustomers = fs_count('accounts', [['role', '=', 'customer'], ['status', '=', 'active']]);
+$pendingPayments= fs_count('bookings', [['status', '=', 'pending']]);
 
-// New: payout requests and platform commission
-$hasPayouts  = $conn->query("SHOW TABLES LIKE 'PayoutRequests'")->num_rows > 0;
-$hasEarnings = $conn->query("SHOW TABLES LIKE 'Earnings'")->num_rows > 0;
-$pendingPayouts   = $hasPayouts  ? $conn->query("SELECT COUNT(*) c FROM PayoutRequests WHERE Payout_Status='pending'")->fetch_assoc()['c'] : 0;
-$totalCommission  = $hasEarnings ? $conn->query("SELECT COALESCE(SUM(Earn_PlatformFee),0) v FROM Earnings WHERE Earn_Status!='voided'")->fetch_assoc()['v'] : 0;
+// Revenue: sum totalPrice for confirmed/completed bookings
+$confirmedBookings = fs_query('bookings', [['status', 'in', ['confirmed','completed']]]);
+$totalRevenue = array_sum(array_column($confirmedBookings, 'totalPrice'));
 
-$recent = $conn->query("
-    SELECT b.*, h.Hotel_Name, h.Hotel_City, r.Room_Type,
-           c.Cust_FName, c.Cust_LName
-    FROM Bookings b
-    JOIN Hotels    h ON h.Hotel_Id = b.Book_HotelId
-    JOIN Rooms     r ON r.Room_Id  = b.Book_RoomId
-    JOIN Customers c ON c.Cust_Id  = b.Book_CustId
-    ORDER BY b.Book_CreatedAt DESC
-    LIMIT 8
-");
+$pendingPayouts  = fs_count('payoutrequests', [['status', '=', 'pending']]);
+$totalCommission = fs_sum('earnings', 'platformFee', [['status', '!=', 'voided']]);
+
+// Recent bookings
+$recentBookings = fs_query('bookings', [], [['createdAt', 'DESC']], 8);
+
+foreach ($recentBookings as &$b) {
+    $hotel = fs_get('hotels', (int)$b['hotelId']);
+    $b['hotelName'] = $hotel['name'] ?? '';
+    $b['hotelCity'] = $hotel['city'] ?? '';
+
+    $room = fs_get('rooms', (int)$b['roomId']);
+    $b['roomType'] = $room['type'] ?? '';
+
+    $cust = fs_get('customers', (int)$b['custId']);
+    $b['custFirstName'] = $cust['firstName'] ?? '';
+    $b['custLastName']  = $cust['lastName']  ?? '';
+}
+unset($b);
 
 $title = "Admin Dashboard";
 include "../layout/layout.php";
@@ -159,7 +165,7 @@ include "../layout/layout.php";
                 <a href="/admin/manage_bookings.php" style="font-size:13px; color:var(--rd-red); font-weight:600; text-decoration:none;">View all</a>
             </div>
 
-            <?php if ($recent->num_rows === 0): ?>
+            <?php if (empty($recentBookings)): ?>
                 <div style="padding:40px; text-align:center; color:#999; font-size:14px;">No bookings yet.</div>
             <?php else: ?>
             <div style="overflow-x:auto;">
@@ -175,8 +181,8 @@ include "../layout/layout.php";
                         </tr>
                     </thead>
                     <tbody>
-                    <?php while ($b = $recent->fetch_assoc()):
-                        $badge = match($b['Book_Status']) {
+                    <?php foreach ($recentBookings as $b):
+                        $badge = match($b['status']) {
                             'confirmed' => '<span class="badge-confirmed">Confirmed</span>',
                             'cancelled' => '<span class="badge-cancelled">Cancelled</span>',
                             'completed' => '<span class="badge-completed">Completed</span>',
@@ -184,14 +190,14 @@ include "../layout/layout.php";
                         };
                     ?>
                     <tr style="border-bottom:1px solid #F8F8F8;">
-                        <td style="padding:14px 16px; color:#999;">#<?= str_pad($b['Book_Id'],4,'0',STR_PAD_LEFT) ?></td>
-                        <td style="padding:14px 16px; font-weight:600;"><?= htmlspecialchars($b['Cust_FName'].' '.$b['Cust_LName']) ?></td>
-                        <td style="padding:14px 16px; color:#555;"><?= htmlspecialchars($b['Hotel_Name']) ?></td>
-                        <td style="padding:14px 16px; color:#555;"><?= date('M d, Y', strtotime($b['Book_CheckIn'])) ?></td>
-                        <td style="padding:14px 16px; font-weight:700; color:var(--rd-red);">&#8369;<?= number_format($b['Book_TotalPrice']) ?></td>
+                        <td style="padding:14px 16px; color:#999;">#<?= str_pad($b['id'],4,'0',STR_PAD_LEFT) ?></td>
+                        <td style="padding:14px 16px; font-weight:600;"><?= htmlspecialchars($b['custFirstName'].' '.$b['custLastName']) ?></td>
+                        <td style="padding:14px 16px; color:#555;"><?= htmlspecialchars($b['hotelName']) ?></td>
+                        <td style="padding:14px 16px; color:#555;"><?= date('M d, Y', strtotime($b['checkIn'])) ?></td>
+                        <td style="padding:14px 16px; font-weight:700; color:var(--rd-red);">&#8369;<?= number_format($b['totalPrice']) ?></td>
                         <td style="padding:14px 16px;"><?= $badge ?></td>
                     </tr>
-                    <?php endwhile; ?>
+                    <?php endforeach; ?>
                     </tbody>
                 </table>
             </div>

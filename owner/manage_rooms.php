@@ -12,12 +12,19 @@ if (!$hotelId) { header("Location: /auth/logout.php"); exit(); }
 // Handle add room
 $msg = '';
 if (isset($_POST['add_room'])) {
-    $type  = $conn->real_escape_string(trim($_POST['room_type']        ?? ''));
+    $type  = trim($_POST['room_type']        ?? '');
     $price = max(0, (float) $_POST['room_price']);
     $cap   = max(1, (int) $_POST['room_capacity']);
-    $desc  = $conn->real_escape_string(trim($_POST['room_description'] ?? ''));
+    $desc  = trim($_POST['room_description'] ?? '');
     if ($type !== '') {
-        $conn->query("INSERT INTO Rooms (Room_HotelId, Room_Type, Room_Price, Room_Capacity, Room_Description, Room_Status) VALUES ($hotelId,'$type',$price,$cap,'$desc','available')");
+        fs_insert('rooms', [
+            'hotelId'     => $hotelId,
+            'type'        => $type,
+            'price'       => $price,
+            'capacity'    => $cap,
+            'description' => $desc,
+            'status'      => 'available',
+        ]);
         $msg = 'Room added successfully.';
     } else {
         $msg = 'Room type/name is required.';
@@ -28,9 +35,9 @@ if (isset($_POST['add_room'])) {
 // Handle delete room
 if (isset($_POST['delete_room'])) {
     $roomId = (int) $_POST['room_id'];
-    $check  = $conn->query("SELECT Room_Id FROM Rooms WHERE Room_Id=$roomId AND Room_HotelId=$hotelId LIMIT 1");
-    if ($check->num_rows > 0) {
-        $conn->query("DELETE FROM Rooms WHERE Room_Id=$roomId");
+    $check  = fs_find('rooms', [['id', '=', $roomId], ['hotelId', '=', $hotelId]]);
+    if ($check) {
+        fs_delete('rooms', $roomId);
         $msg = 'Room deleted.';
     }
     header("Location: manage_rooms.php?msg=" . urlencode($msg)); exit();
@@ -38,14 +45,19 @@ if (isset($_POST['delete_room'])) {
 
 // Handle room edit
 if (isset($_POST['edit_room'])) {
-    $roomId  = (int) $_POST['room_id'];
-    $type    = $conn->real_escape_string(trim($_POST['room_type']        ?? ''));
-    $price   = max(0, (float) $_POST['room_price']);
-    $cap     = max(1, (int) $_POST['room_capacity']);
-    $desc    = $conn->real_escape_string(trim($_POST['room_description'] ?? ''));
-    $check   = $conn->query("SELECT Room_Id FROM Rooms WHERE Room_Id=$roomId AND Room_HotelId=$hotelId LIMIT 1");
-    if ($check->num_rows > 0 && $type !== '') {
-        $conn->query("UPDATE Rooms SET Room_Type='$type', Room_Price=$price, Room_Capacity=$cap, Room_Description='$desc' WHERE Room_Id=$roomId");
+    $roomId = (int) $_POST['room_id'];
+    $type   = trim($_POST['room_type']        ?? '');
+    $price  = max(0, (float) $_POST['room_price']);
+    $cap    = max(1, (int) $_POST['room_capacity']);
+    $desc   = trim($_POST['room_description'] ?? '');
+    $check  = fs_find('rooms', [['id', '=', $roomId], ['hotelId', '=', $hotelId]]);
+    if ($check && $type !== '') {
+        fs_update('rooms', $roomId, [
+            'type'        => $type,
+            'price'       => $price,
+            'capacity'    => $cap,
+            'description' => $desc,
+        ]);
         $msg = 'Room updated successfully.';
     } else {
         $msg = 'Invalid room or missing name.';
@@ -59,9 +71,9 @@ if (isset($_POST['toggle_status'])) {
     $newStatus = $_POST['new_status'] ?? '';
     $allowed   = ['available', 'maintenance', 'occupied'];
     if (in_array($newStatus, $allowed)) {
-        $check = $conn->query("SELECT Room_Id FROM Rooms WHERE Room_Id=$roomId AND Room_HotelId=$hotelId LIMIT 1");
-        if ($check->num_rows > 0) {
-            $conn->query("UPDATE Rooms SET Room_Status='$newStatus' WHERE Room_Id=$roomId");
+        $check = fs_find('rooms', [['id', '=', $roomId], ['hotelId', '=', $hotelId]]);
+        if ($check) {
+            fs_update('rooms', $roomId, ['status' => $newStatus]);
             $msg = 'Room status updated.';
         }
     }
@@ -70,15 +82,20 @@ if (isset($_POST['toggle_status'])) {
 
 // Handle block date add
 if (isset($_POST['add_block'])) {
-    $roomId    = (int) $_POST['block_room_id'];
-    $dateFrom  = $conn->real_escape_string($_POST['block_from'] ?? '');
-    $dateTo    = $conn->real_escape_string($_POST['block_to']   ?? '');
-    $reason    = $conn->real_escape_string($_POST['block_reason'] ?? 'maintenance');
-    $hasTable  = $conn->query("SHOW TABLES LIKE 'BlockedDates'")->num_rows > 0;
-    if ($hasTable && $dateFrom && $dateTo && $dateTo > $dateFrom) {
-        $check = $conn->query("SELECT Room_Id FROM Rooms WHERE Room_Id=$roomId AND Room_HotelId=$hotelId LIMIT 1");
-        if ($check->num_rows > 0) {
-            $conn->query("INSERT INTO BlockedDates (Block_RoomId,Block_HotelId,Block_DateFrom,Block_DateTo,Block_Reason) VALUES ($roomId,$hotelId,'$dateFrom','$dateTo','$reason')");
+    $roomId   = (int) $_POST['block_room_id'];
+    $dateFrom = $_POST['block_from']   ?? '';
+    $dateTo   = $_POST['block_to']     ?? '';
+    $reason   = $_POST['block_reason'] ?? 'maintenance';
+    if ($dateFrom && $dateTo && $dateTo > $dateFrom) {
+        $check = fs_find('rooms', [['id', '=', $roomId], ['hotelId', '=', $hotelId]]);
+        if ($check) {
+            fs_insert('blockeddates', [
+                'roomId'   => $roomId,
+                'hotelId'  => $hotelId,
+                'dateFrom' => $dateFrom,
+                'dateTo'   => $dateTo,
+                'reason'   => $reason,
+            ]);
             $msg = 'Dates blocked successfully.';
         }
     } else {
@@ -90,20 +107,20 @@ if (isset($_POST['add_block'])) {
 // Handle block delete
 if (isset($_POST['delete_block'])) {
     $blockId = (int) $_POST['block_id'];
-    $conn->query("DELETE FROM BlockedDates WHERE Block_Id=$blockId AND Block_HotelId=$hotelId");
+    $check   = fs_find('blockeddates', [['id', '=', $blockId], ['hotelId', '=', $hotelId]]);
+    if ($check) {
+        fs_delete('blockeddates', $blockId);
+    }
     header("Location: manage_rooms.php?msg=Block+removed."); exit();
 }
 
-$rooms = $conn->query("SELECT * FROM Rooms WHERE Room_HotelId=$hotelId ORDER BY Room_Type");
+$rooms = fs_query('rooms', [['hotelId', '=', $hotelId]], [['type', 'ASC']]);
 
 // Load blocked dates
-$hasBlockTable = $conn->query("SHOW TABLES LIKE 'BlockedDates'")->num_rows > 0;
+$allBlocks = fs_query('blockeddates', [['hotelId', '=', $hotelId]], [['dateFrom', 'ASC']]);
 $blocks = [];
-if ($hasBlockTable) {
-    $bRes = $conn->query("SELECT * FROM BlockedDates WHERE Block_HotelId=$hotelId ORDER BY Block_DateFrom");
-    while ($bl = $bRes->fetch_assoc()) {
-        $blocks[$bl['Block_RoomId']][] = $bl;
-    }
+foreach ($allBlocks as $bl) {
+    $blocks[$bl['roomId']][] = $bl;
 }
 
 $title = "Manage Rooms";
@@ -137,55 +154,55 @@ include "../layout/layout.php";
             You can edit room details, update availability status, and block specific dates for your rooms below.
         </div>
 
-        <?php if ($rooms->num_rows === 0): ?>
+        <?php if (empty($rooms)): ?>
         <div style="padding:48px; text-align:center; background:#fff; border-radius:14px; color:#999; font-size:14px; box-shadow:var(--rd-shadow);">
             No rooms found for your hotel.
         </div>
         <?php else: ?>
-        <?php while ($room = $rooms->fetch_assoc()):
-            $statusBadge = match($room['Room_Status']) {
+        <?php foreach ($rooms as $room):
+            $statusBadge = match($room['status']) {
                 'available'   => '<span class="badge-available">Available</span>',
                 'maintenance' => '<span class="badge-voided">Maintenance</span>',
                 'occupied'    => '<span class="badge-checked-in">Occupied</span>',
-                default       => '<span class="badge-pending">' . htmlspecialchars($room['Room_Status']) . '</span>',
+                default       => '<span class="badge-pending">' . htmlspecialchars($room['status']) . '</span>',
             };
-            $roomBlocks = $blocks[$room['Room_Id']] ?? [];
+            $roomBlocks = $blocks[$room['id']] ?? [];
         ?>
         <div style="background:#fff; border-radius:14px; box-shadow:var(--rd-shadow); margin-bottom:20px; overflow:hidden; border:1px solid rgba(228,223,223,0.5);">
             <!-- Room header -->
             <div style="padding:18px 22px; border-bottom:1px solid var(--rd-border); display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px;">
                 <div>
-                    <div style="font-size:15px; font-weight:700;"><?= htmlspecialchars($room['Room_Type']) ?></div>
+                    <div style="font-size:15px; font-weight:700;"><?= htmlspecialchars($room['type']) ?></div>
                     <div style="font-size:13px; color:var(--rd-muted); margin-top:2px;">
-                        &#8369;<?= number_format($room['Room_Price']) ?>/night &bull; Max <?= $room['Room_Capacity'] ?> guests
+                        &#8369;<?= number_format($room['price']) ?>/night &bull; Max <?= $room['capacity'] ?> guests
                     </div>
                 </div>
                 <div style="display:flex; align-items:center; gap:12px;">
                     <?= $statusBadge ?>
                     <button type="button" class="btn-rd-outline" style="font-size:12px; padding:5px 14px;"
                             data-bs-toggle="modal" data-bs-target="#editRoomModal"
-                            data-room-id="<?= $room['Room_Id'] ?>"
-                            data-room-type="<?= htmlspecialchars($room['Room_Type'], ENT_QUOTES) ?>"
-                            data-room-price="<?= $room['Room_Price'] ?>"
-                            data-room-capacity="<?= $room['Room_Capacity'] ?>"
-                            data-room-description="<?= htmlspecialchars($room['Room_Description'] ?? '', ENT_QUOTES) ?>">
+                            data-room-id="<?= $room['id'] ?>"
+                            data-room-type="<?= htmlspecialchars($room['type'], ENT_QUOTES) ?>"
+                            data-room-price="<?= $room['price'] ?>"
+                            data-room-capacity="<?= $room['capacity'] ?>"
+                            data-room-description="<?= htmlspecialchars($room['description'] ?? '', ENT_QUOTES) ?>">
                         <i class="bi bi-pencil me-1"></i>Edit
                     </button>
                     <button type="button" class="btn-rd-outline" style="font-size:12px; padding:5px 14px;"
                             data-bs-toggle="modal" data-bs-target="#toggleModal"
-                            data-room-id="<?= $room['Room_Id'] ?>"
-                            data-room-type="<?= htmlspecialchars($room['Room_Type']) ?>"
-                            data-room-status="<?= htmlspecialchars($room['Room_Status']) ?>">
+                            data-room-id="<?= $room['id'] ?>"
+                            data-room-type="<?= htmlspecialchars($room['type']) ?>"
+                            data-room-status="<?= htmlspecialchars($room['status']) ?>">
                         <i class="bi bi-toggle-on me-1"></i>Change Status
                     </button>
                     <button type="button" class="btn-rd" style="font-size:12px; padding:5px 14px;"
                             data-bs-toggle="modal" data-bs-target="#blockModal"
-                            data-room-id="<?= $room['Room_Id'] ?>"
-                            data-room-type="<?= htmlspecialchars($room['Room_Type']) ?>">
+                            data-room-id="<?= $room['id'] ?>"
+                            data-room-type="<?= htmlspecialchars($room['type']) ?>">
                         <i class="bi bi-calendar-x me-1"></i>Block Dates
                     </button>
                     <form method="POST" style="margin:0;" onsubmit="return confirm('Delete this room? This cannot be undone.');">
-                        <input type="hidden" name="room_id" value="<?= $room['Room_Id'] ?>">
+                        <input type="hidden" name="room_id" value="<?= $room['id'] ?>">
                         <button type="submit" name="delete_room"
                                 style="background:none; border:1px solid #FECACA; color:#B91C1C; padding:5px 14px; font-size:12px; border-radius:8px; cursor:pointer; font-weight:600; font-family:'DM Sans',sans-serif;">
                             <i class="bi bi-trash me-1"></i>Delete
@@ -202,10 +219,10 @@ include "../layout/layout.php";
                     <?php foreach ($roomBlocks as $bl): ?>
                     <div style="display:inline-flex; align-items:center; gap:8px; background:#fff; border:1px solid var(--rd-border); border-radius:8px; padding:6px 12px; font-size:12px;">
                         <i class="bi bi-calendar-x" style="color:var(--rd-red);"></i>
-                        <?= date('M d', strtotime($bl['Block_DateFrom'])) ?> &ndash; <?= date('M d, Y', strtotime($bl['Block_DateTo'])) ?>
-                        <span style="color:#999;">(<?= htmlspecialchars($bl['Block_Reason']) ?>)</span>
+                        <?= date('M d', strtotime($bl['dateFrom'])) ?> &ndash; <?= date('M d, Y', strtotime($bl['dateTo'])) ?>
+                        <span style="color:#999;">(<?= htmlspecialchars($bl['reason']) ?>)</span>
                         <form method="POST" style="margin:0;" onsubmit="return confirm('Remove this block?');">
-                            <input type="hidden" name="block_id" value="<?= $bl['Block_Id'] ?>">
+                            <input type="hidden" name="block_id" value="<?= $bl['id'] ?>">
                             <button type="submit" name="delete_block" style="background:none; border:none; color:#ccc; cursor:pointer; padding:0; font-size:13px; line-height:1;">
                                 <i class="bi bi-x-circle-fill"></i>
                             </button>
@@ -217,7 +234,7 @@ include "../layout/layout.php";
             <?php endif; ?>
 
         </div>
-        <?php endwhile; ?>
+        <?php endforeach; ?>
         <?php endif; ?>
 
     </div>

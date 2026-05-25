@@ -6,23 +6,23 @@ if (!isset($_SESSION['account_id']) || $_SESSION['role'] !== 'admin') {
     header("Location: /auth/login.php"); exit();
 }
 
-$hasPayouts  = $conn->query("SHOW TABLES LIKE 'PayoutRequests'")->num_rows > 0;
-$hasEarnings = $conn->query("SHOW TABLES LIKE 'Earnings'")->num_rows > 0;
-
 // Process payout
-if (isset($_POST['process_payout']) && $hasPayouts) {
+if (isset($_POST['process_payout'])) {
     $payoutId  = (int) $_POST['payout_id'];
     $newStatus = $_POST['new_status'] ?? '';
-    $note      = $conn->real_escape_string($_POST['admin_note'] ?? '');
+    $note      = $_POST['admin_note'] ?? '';
 
     if (in_array($newStatus, ['approved', 'rejected'])) {
-        $conn->query("UPDATE PayoutRequests SET Payout_Status='$newStatus', Payout_Note='$note' WHERE Payout_Id=$payoutId");
-        if ($newStatus === 'approved' && $hasEarnings) {
-            // Mark earnings as paid_out
-            $pReq = $conn->query("SELECT Payout_HotelId FROM PayoutRequests WHERE Payout_Id=$payoutId LIMIT 1")->fetch_assoc();
+        fs_update('payoutrequests', $payoutId, ['status' => $newStatus, 'adminNote' => $note]);
+        if ($newStatus === 'approved') {
+            // Mark related earnings as paid_out
+            $pReq = fs_get('payoutrequests', $payoutId);
             if ($pReq) {
-                $hId = (int)$pReq['Payout_HotelId'];
-                $conn->query("UPDATE Earnings SET Earn_Status='paid_out' WHERE Earn_HotelId=$hId AND Earn_Status='pending_payout'");
+                $hId = (int)($pReq['hotelId'] ?? 0);
+                $pendingEarns = fs_query('earnings', [['hotelId', '=', $hId], ['status', '=', 'pending_payout']]);
+                foreach ($pendingEarns as $pe) {
+                    fs_update('earnings', (int)$pe['id'], ['status' => 'paid_out']);
+                }
             }
         }
         header("Location: manage_payouts.php?msg=Payout+" . ($newStatus === 'approved' ? 'approved' : 'rejected') . "."); exit();
@@ -30,28 +30,25 @@ if (isset($_POST['process_payout']) && $hasPayouts) {
 }
 
 // Stats
-$totalPending  = 0; $totalApproved = 0; $totalPlatform = 0;
-if ($hasPayouts) {
-    $totalPending  = $conn->query("SELECT COALESCE(SUM(Payout_Amount),0) v FROM PayoutRequests WHERE Payout_Status='pending'")->fetch_assoc()['v'];
-    $totalApproved = $conn->query("SELECT COALESCE(SUM(Payout_Amount),0) v FROM PayoutRequests WHERE Payout_Status='approved'")->fetch_assoc()['v'];
-}
-if ($hasEarnings) {
-    $totalPlatform = $conn->query("SELECT COALESCE(SUM(Earn_PlatformFee),0) v FROM Earnings WHERE Earn_Status!='voided'")->fetch_assoc()['v'];
-}
+$totalPending  = fs_sum('payoutrequests', 'amount', [['status', '=', 'pending']]);
+$totalApproved = fs_sum('payoutrequests', 'amount', [['status', '=', 'approved']]);
+$totalPlatform = fs_sum('earnings', 'platformFee', [['status', '!=', 'voided']]);
 
 // Filter
-$statusFilter = $conn->real_escape_string($_GET['status'] ?? '');
-$where = '1=1';
-if ($statusFilter) $where .= " AND p.Payout_Status='$statusFilter'";
+$statusFilter = $_GET['status'] ?? '';
+$wheres = $statusFilter ? [['status', '=', $statusFilter]] : [];
+$payoutsRaw = fs_query('payoutrequests', $wheres, [['createdAt', 'DESC']]);
 
-$payouts = $hasPayouts ? $conn->query("
-    SELECT p.*, h.Hotel_Name, h.Hotel_City, a.Acct_Email
-    FROM PayoutRequests p
-    JOIN Hotels  h ON h.Hotel_Id  = p.Payout_HotelId
-    JOIN Accounts a ON a.Acct_Id  = p.Payout_OwnerId
-    WHERE $where
-    ORDER BY p.Payout_CreatedAt DESC
-") : null;
+// Enrich
+$payouts = [];
+foreach ($payoutsRaw as $p) {
+    $hotel = fs_get('hotels', (int)($p['hotelId'] ?? 0));
+    $acct  = fs_get('accounts', (int)($p['ownerId'] ?? 0));
+    $p['hotelName'] = $hotel['name'] ?? '';
+    $p['hotelCity'] = $hotel['city'] ?? '';
+    $p['acctEmail'] = $acct['email']  ?? '';
+    $payouts[] = $p;
+}
 
 $title = "Manage Payouts";
 include "../layout/layout.php";
@@ -72,12 +69,6 @@ include "../layout/layout.php";
             <i class="bi bi-check-circle-fill"></i> <?= htmlspecialchars($_GET['msg']) ?>
         </div>
         <?php endif; ?>
-
-        <?php if (!$hasPayouts): ?>
-        <div style="background:#FFF8E1; border:1px solid #FFE082; border-radius:8px; padding:14px; color:#7B5800; font-size:13px;">
-            <i class="bi bi-exclamation-triangle me-2"></i>Run <code>config/migration_owner.sql</code> to enable payout management.
-        </div>
-        <?php else: ?>
 
         <!-- Summary stats -->
         <div class="row g-4 mb-4">
@@ -157,33 +148,32 @@ include "../layout/layout.php";
                         </tr>
                     </thead>
                     <tbody>
-                    <?php if (!$payouts || $payouts->num_rows === 0): ?>
+                    <?php if (empty($payouts)): ?>
                     <tr><td colspan="9" style="text-align:center; padding:40px; color:#999;">No payout requests found.</td></tr>
                     <?php endif; ?>
-                    <?php while ($p = $payouts ? $payouts->fetch_assoc() : null):
-                        if (!$p) break;
-                        $pBadge = match($p['Payout_Status']) {
+                    <?php foreach ($payouts as $p):
+                        $pBadge = match($p['status'] ?? '') {
                             'approved' => '<span class="badge-confirmed">Approved</span>',
                             'rejected' => '<span class="badge-cancelled">Rejected</span>',
                             default    => '<span class="badge-pending">Pending</span>',
                         };
                     ?>
                     <tr>
-                        <td style="color:#999;">#<?= str_pad($p['Payout_Id'],4,'0',STR_PAD_LEFT) ?></td>
-                        <td><?= htmlspecialchars($p['Acct_Email']) ?></td>
-                        <td style="font-weight:600;"><?= htmlspecialchars($p['Hotel_Name']) ?></td>
-                        <td style="font-weight:700; color:var(--rd-red);">&#8369;<?= number_format($p['Payout_Amount'], 2) ?></td>
-                        <td><?= htmlspecialchars(ucfirst(str_replace('_',' ',$p['Payout_Method']))) ?></td>
-                        <td style="font-family:monospace; font-size:12px;"><?= htmlspecialchars($p['Payout_AccountNo'] ?: '—') ?></td>
-                        <td style="color:#999;"><?= date('M d, Y', strtotime($p['Payout_CreatedAt'])) ?></td>
+                        <td style="color:#999;">#<?= str_pad($p['id'],4,'0',STR_PAD_LEFT) ?></td>
+                        <td><?= htmlspecialchars($p['acctEmail']) ?></td>
+                        <td style="font-weight:600;"><?= htmlspecialchars($p['hotelName']) ?></td>
+                        <td style="font-weight:700; color:var(--rd-red);">&#8369;<?= number_format($p['amount'], 2) ?></td>
+                        <td><?= htmlspecialchars(ucfirst(str_replace('_',' ',$p['method'] ?? ''))) ?></td>
+                        <td style="font-family:monospace; font-size:12px;"><?= htmlspecialchars($p['accountNo'] ?? '—') ?></td>
+                        <td style="color:#999;"><?= isset($p['createdAt']) ? date('M d, Y', strtotime($p['createdAt'])) : '—' ?></td>
                         <td><?= $pBadge ?></td>
                         <td>
-                            <?php if ($p['Payout_Status'] === 'pending'): ?>
+                            <?php if (($p['status'] ?? '') === 'pending'): ?>
                             <button type="button" class="btn-rd" style="font-size:12px; padding:5px 12px;"
                                     data-bs-toggle="modal" data-bs-target="#processModal"
-                                    data-id="<?= $p['Payout_Id'] ?>"
-                                    data-amount="<?= number_format($p['Payout_Amount'],2) ?>"
-                                    data-hotel="<?= htmlspecialchars($p['Hotel_Name']) ?>">
+                                    data-id="<?= $p['id'] ?>"
+                                    data-amount="<?= number_format($p['amount'],2) ?>"
+                                    data-hotel="<?= htmlspecialchars($p['hotelName']) ?>">
                                 Process
                             </button>
                             <?php else: ?>
@@ -191,12 +181,11 @@ include "../layout/layout.php";
                             <?php endif; ?>
                         </td>
                     </tr>
-                    <?php endwhile; ?>
+                    <?php endforeach; ?>
                     </tbody>
                 </table>
             </div>
         </div>
-        <?php endif; ?>
 
     </div>
 </div>

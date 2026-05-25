@@ -3,7 +3,6 @@
  * POST /api/register_fcm_token.php
  * Called by the Android app after Firebase gives it an FCM token.
  * Body: { "acct_id": 5, "token": "fcm_token_string" }
- * Auth: simple bearer token matching session or API key header.
  */
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
@@ -25,12 +24,21 @@ if (!$acctId || !$token) {
     exit();
 }
 
-// Upsert: insert or update timestamp if already exists
-$safeToken = $conn->real_escape_string($token);
-$conn->query("
-    INSERT INTO FcmTokens (Token_AcctId, Token_Value)
-    VALUES ($acctId, '$safeToken')
-    ON DUPLICATE KEY UPDATE Token_UpdatedAt = CURRENT_TIMESTAMP
-");
+// Check if a token record already exists for this account
+$existing = fs_find('fcmtokens', [['acctId', '=', $acctId]]);
+
+if ($existing) {
+    // Update token value and timestamp
+    fs_update('fcmtokens', (int)$existing['id'], [
+        'token'     => $token,
+        'updatedAt' => date('Y-m-d H:i:s'),
+    ]);
+} else {
+    // Insert new token record
+    fs_insert('fcmtokens', [
+        'acctId' => $acctId,
+        'token'  => $token,
+    ]);
+}
 
 echo json_encode(['success' => true]);

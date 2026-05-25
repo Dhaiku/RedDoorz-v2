@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 session_start();
 require_once "../config/db.php";
 
@@ -11,57 +11,54 @@ $message = "";
 // ADMIN OVERRIDE: cancel-only
 if (isset($_POST['update_status'])) {
     $bookId = (int) $_POST['book_id'];
-    // Admin can only force-cancel; other transitions are handled by owner/customer/system
     if (isset($_POST['status']) && $_POST['status'] === 'cancelled') {
-        $conn->query("UPDATE Bookings SET Book_Status='cancelled' WHERE Book_Id=$bookId");
+        fs_update('bookings', $bookId, ['status' => 'cancelled']);
         // Void earnings
-        $hasEarningsTable = $conn->query("SHOW TABLES LIKE 'Earnings'")->num_rows > 0;
-        if ($hasEarningsTable) {
-            $conn->query("UPDATE Earnings SET Earn_Status='voided' WHERE Earn_BookId=$bookId");
+        $earnRow = fs_find('earnings', [['bookId', '=', $bookId]]);
+        if ($earnRow) {
+            fs_update('earnings', (int)$earnRow['id'], ['status' => 'voided']);
         }
         $message = "Booking #" . str_pad($bookId,4,'0',STR_PAD_LEFT) . " has been cancelled and earnings voided.";
     }
 }
 
-// Filters
-$filterStatus = $conn->real_escape_string($_GET['status'] ?? '');
+// Build filter wheres
+$filterStatus = $_GET['status'] ?? '';
 $filterHotel  = (int) ($_GET['hotel'] ?? 0);
-$search       = $conn->real_escape_string(trim($_GET['search'] ?? ''));
+$search       = strtolower(trim($_GET['search'] ?? ''));
 
-$where = "WHERE 1=1";
-if ($filterStatus) $where .= " AND b.Book_Status='$filterStatus'";
-if ($filterHotel)  $where .= " AND b.Book_HotelId=$filterHotel";
-if ($search)       $where .= " AND (c.Cust_FName LIKE '%$search%' OR c.Cust_LName LIKE '%$search%' OR h.Hotel_Name LIKE '%$search%')";
+$wheres = [];
+if ($filterStatus) $wheres[] = ['status', '=', $filterStatus];
+if ($filterHotel)  $wheres[] = ['hotelId', '=', $filterHotel];
 
-$hasPaymentsTable = $conn->query("SHOW TABLES LIKE 'Payments'")->num_rows > 0;
+$bookings = fs_query('bookings', $wheres, [['createdAt', 'DESC']]);
 
-if ($hasPaymentsTable) {
-    $bookings = $conn->query("
-        SELECT b.*, h.Hotel_Name, h.Hotel_City, r.Room_Type,
-               c.Cust_FName, c.Cust_LName,
-               p.Paymt_Method, p.Paymt_Status, p.Paymt_RefCode
-        FROM Bookings b
-        JOIN Hotels    h ON h.Hotel_Id = b.Book_HotelId
-        JOIN Rooms     r ON r.Room_Id  = b.Book_RoomId
-        JOIN Customers c ON c.Cust_Id  = b.Book_CustId
-        LEFT JOIN Payments p ON p.Paymt_BookId = b.Book_Id
-        $where
-        ORDER BY b.Book_CreatedAt DESC
-    ");
-} else {
-    $bookings = $conn->query("
-        SELECT b.*, h.Hotel_Name, h.Hotel_City, r.Room_Type,
-               c.Cust_FName, c.Cust_LName
-        FROM Bookings b
-        JOIN Hotels    h ON h.Hotel_Id = b.Book_HotelId
-        JOIN Rooms     r ON r.Room_Id  = b.Book_RoomId
-        JOIN Customers c ON c.Cust_Id  = b.Book_CustId
-        $where
-        ORDER BY b.Book_CreatedAt DESC
-    ");
+// Enrich and filter (search is PHP-side since Firestore doesn't do LIKE)
+$allHotels = fs_all('hotels', [['name', 'ASC']]);
+
+$enriched = [];
+foreach ($bookings as $b) {
+    $hotel = fs_get('hotels', (int)($b['hotelId'] ?? 0));
+    $room  = fs_get('rooms',  (int)($b['roomId']  ?? 0));
+    $cust  = fs_get('customers', (int)($b['custId'] ?? 0));
+    $acct  = $cust ? fs_get('accounts', (int)($cust['acctId'] ?? 0)) : null;
+    $paymt = fs_find('payments', [['bookId', '=', $b['id']]]);
+
+    $b['hotelName']     = $hotel['name'] ?? '';
+    $b['hotelCity']     = $hotel['city'] ?? '';
+    $b['roomType']      = $room['type']  ?? '';
+    $b['custFirstName'] = $cust['firstName'] ?? '';
+    $b['custLastName']  = $cust['lastName']  ?? '';
+    $b['paymtMethod']   = $paymt['method']   ?? '';
+    $b['paymtStatus']   = $paymt['status']   ?? '';
+    $b['paymtRefCode']  = $paymt['refCode']  ?? '';
+
+    if ($search) {
+        $haystack = strtolower($b['custFirstName'].' '.$b['custLastName'].' '.$b['hotelName']);
+        if (strpos($haystack, $search) === false) continue;
+    }
+    $enriched[] = $b;
 }
-
-$hotels = $conn->query("SELECT Hotel_Id, Hotel_Name FROM Hotels ORDER BY Hotel_Name");
 
 $title = "Manage Bookings";
 include "../layout/layout.php";
@@ -95,11 +92,11 @@ include "../layout/layout.php";
             </select>
             <select name="hotel" class="form-select" style="max-width:200px; font-size:14px;">
                 <option value="">All Hotels</option>
-                <?php while ($h = $hotels->fetch_assoc()): ?>
-                <option value="<?= $h['Hotel_Id'] ?>" <?= $filterHotel == $h['Hotel_Id'] ? 'selected' : '' ?>>
-                    <?= htmlspecialchars($h['Hotel_Name']) ?>
+                <?php foreach ($allHotels as $h): ?>
+                <option value="<?= $h['id'] ?>" <?= $filterHotel == $h['id'] ? 'selected' : '' ?>>
+                    <?= htmlspecialchars($h['name']) ?>
                 </option>
-                <?php endwhile; ?>
+                <?php endforeach; ?>
             </select>
             <button type="submit" class="btn-rd" style="padding:10px 20px;">Filter</button>
             <a href="manage_bookings.php" style="font-size:13px; color:#999; align-self:center; text-decoration:none;">Clear</a>
@@ -111,7 +108,7 @@ include "../layout/layout.php";
             Admin override is limited to <strong>cancellation only</strong>. Room, check-in, and pricing changes are managed by hotel owners.
         </div>
 
-        <p style="font-size:13px; color:#999; margin-bottom:16px;"><?= $bookings->num_rows ?> booking<?= $bookings->num_rows != 1 ? 's' : '' ?> found</p>
+        <p style="font-size:13px; color:#999; margin-bottom:16px;"><?= count($enriched) ?> booking<?= count($enriched) != 1 ? 's' : '' ?> found</p>
 
         <!-- Table -->
         <div style="background:#fff; border-radius:14px; box-shadow:0 2px 12px rgba(0,0,0,0.07); overflow:hidden;">
@@ -131,11 +128,11 @@ include "../layout/layout.php";
                         </tr>
                     </thead>
                     <tbody>
-                    <?php if ($bookings->num_rows === 0): ?>
+                    <?php if (empty($enriched)): ?>
                         <tr><td colspan="9" style="padding:40px; text-align:center; color:#999;">No bookings found.</td></tr>
-                    <?php else: while ($b = $bookings->fetch_assoc()):
-                        $nights = max(1, (new DateTime($b['Book_CheckIn']))->diff(new DateTime($b['Book_CheckOut']))->days);
-                        $badge  = match($b['Book_Status']) {
+                    <?php else: foreach ($enriched as $b):
+                        $nights = max(1, (new DateTime($b['checkIn']))->diff(new DateTime($b['checkOut']))->days);
+                        $badge  = match($b['status']) {
                             'confirmed' => '<span class="badge-confirmed">Confirmed</span>',
                             'cancelled' => '<span class="badge-cancelled">Cancelled</span>',
                             'completed' => '<span class="badge-completed">Completed</span>',
@@ -143,42 +140,42 @@ include "../layout/layout.php";
                         };
                     ?>
                     <tr style="border-bottom:1px solid #F8F8F8;">
-                        <td style="padding:14px 16px; color:#999; white-space:nowrap;">#<?= str_pad($b['Book_Id'],4,'0',STR_PAD_LEFT) ?></td>
-                        <td style="padding:14px 16px; font-weight:600; white-space:nowrap;"><?= htmlspecialchars($b['Cust_FName'].' '.$b['Cust_LName']) ?></td>
+                        <td style="padding:14px 16px; color:#999; white-space:nowrap;">#<?= str_pad($b['id'],4,'0',STR_PAD_LEFT) ?></td>
+                        <td style="padding:14px 16px; font-weight:600; white-space:nowrap;"><?= htmlspecialchars($b['custFirstName'].' '.$b['custLastName']) ?></td>
                         <td style="padding:14px 16px; color:#555;">
-                            <div style="font-weight:600; font-size:13px;"><?= htmlspecialchars($b['Hotel_Name']) ?></div>
-                            <div style="font-size:12px; color:#999;"><?= htmlspecialchars($b['Room_Type']) ?></div>
+                            <div style="font-weight:600; font-size:13px;"><?= htmlspecialchars($b['hotelName']) ?></div>
+                            <div style="font-size:12px; color:#999;"><?= htmlspecialchars($b['roomType']) ?></div>
                         </td>
-                        <td style="padding:14px 16px; color:#555; white-space:nowrap;"><?= date('M d, Y', strtotime($b['Book_CheckIn'])) ?></td>
+                        <td style="padding:14px 16px; color:#555; white-space:nowrap;"><?= date('M d, Y', strtotime($b['checkIn'])) ?></td>
                         <td style="padding:14px 16px; color:#555; text-align:center;"><?= $nights ?></td>
-                        <td style="padding:14px 16px; font-weight:700; color:var(--rd-red); white-space:nowrap;">₱<?= number_format($b['Book_TotalPrice']) ?></td>
+                        <td style="padding:14px 16px; font-weight:700; color:var(--rd-red); white-space:nowrap;">₱<?= number_format($b['totalPrice']) ?></td>
                         <td style="padding:14px 16px;"><?= $badge ?></td>
                         <td style="padding:14px 16px;">
-                            <?php if ($hasPaymentsTable && !empty($b['Paymt_Method'])): ?>
+                            <?php if ($b['paymtMethod']): ?>
                                 <?php
-                                $methodShort = match($b['Paymt_Method']) {
+                                $methodShort = match($b['paymtMethod']) {
                                     'gcash'        => 'GCash',
                                     'maya'         => 'Maya',
                                     'credit_card'  => 'Card',
                                     'pay_at_hotel' => 'At Hotel',
-                                    default        => ucfirst($b['Paymt_Method']),
+                                    default        => ucfirst($b['paymtMethod']),
                                 };
-                                $paidBadge = $b['Paymt_Status'] === 'paid'
+                                $paidBadge = $b['paymtStatus'] === 'paid'
                                     ? '<span style="background:#D1E7DD;color:#0A3622;border-radius:4px;padding:2px 8px;font-size:11px;font-weight:700;">Paid</span>'
                                     : '<span style="background:#FFF3CD;color:#856404;border-radius:4px;padding:2px 8px;font-size:11px;font-weight:700;">Pending</span>';
                                 ?>
                                 <div style="font-size:12px; font-weight:600; color:#444;"><?= $methodShort ?></div>
                                 <div style="margin-top:3px;"><?= $paidBadge ?></div>
-                            <?php elseif ($b['Book_Status'] === 'pending'): ?>
+                            <?php elseif ($b['status'] === 'pending'): ?>
                                 <span style="font-size:12px; color:#999;">No payment</span>
                             <?php else: ?>
                                 <span style="font-size:12px; color:#bbb;">—</span>
                             <?php endif; ?>
                         </td>
                         <td style="padding:14px 16px; text-align:center;">
-                            <?php if (!in_array($b['Book_Status'], ['cancelled','completed'])): ?>
-                            <form method="POST" style="display:inline;" onsubmit="return confirm('Force-cancel booking #<?= $b['Book_Id'] ?>? This will void earnings.');">
-                                <input type="hidden" name="book_id" value="<?= $b['Book_Id'] ?>">
+                            <?php if (!in_array($b['status'], ['cancelled','completed'])): ?>
+                            <form method="POST" style="display:inline;" onsubmit="return confirm('Force-cancel booking #<?= $b['id'] ?>? This will void earnings.');">
+                                <input type="hidden" name="book_id" value="<?= $b['id'] ?>">
                                 <input type="hidden" name="status" value="cancelled">
                                 <button type="submit" name="update_status"
                                         style="background:#FEF2F2; color:#B91C1C; border:1px solid #FECACA; padding:5px 14px; font-size:12px; border-radius:6px; cursor:pointer; font-weight:600; font-family:'DM Sans',sans-serif;">
@@ -190,7 +187,7 @@ include "../layout/layout.php";
                             <?php endif; ?>
                         </td>
                     </tr>
-                    <?php endwhile; endif; ?>
+                    <?php endforeach; endif; ?>
                     </tbody>
                 </table>
             </div>

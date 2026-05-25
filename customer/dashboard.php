@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 session_start();
 require_once "../config/db.php";
 
@@ -10,21 +10,15 @@ if (isset($_POST['cancel_booking'])) {
     $bookId = (int) $_POST['book_id'];
     $custId = (int) $_SESSION['customer_id'];
 
-    // Fetch booking to check status and 24-hour rule
-    $bRow = $conn->query("
-        SELECT Book_Status, Book_CheckIn FROM Bookings
-        WHERE Book_Id=$bookId AND Book_CustId=$custId
-        LIMIT 1
-    ")->fetch_assoc();
+    $bRow = fs_find('bookings', [['id', '=', $bookId], ['custId', '=', $custId]]);
 
     $cancelError = '';
     if (!$bRow) {
         $cancelError = 'Booking not found.';
-    } elseif (!in_array($bRow['Book_Status'], ['pending', 'confirmed'])) {
+    } elseif (!in_array($bRow['status'], ['pending', 'confirmed'])) {
         $cancelError = 'This booking cannot be cancelled.';
     } else {
-        // Enforce 24-hour rule: cannot cancel within 24h of check-in
-        $checkInTs = strtotime($bRow['Book_CheckIn']);
+        $checkInTs = strtotime($bRow['checkIn']);
         $hoursUntilCheckIn = ($checkInTs - time()) / 3600;
         if ($hoursUntilCheckIn < 24) {
             $cancelError = 'Cancellations must be made at least 24 hours before check-in.';
@@ -32,49 +26,41 @@ if (isset($_POST['cancel_booking'])) {
     }
 
     if (!$cancelError) {
-        $conn->query("UPDATE Bookings SET Book_Status='cancelled' WHERE Book_Id=$bookId AND Book_CustId=$custId");
+        fs_update('bookings', $bookId, ['status' => 'cancelled']);
         // Void the Earnings record if it exists
-        $hasEarningsTable = $conn->query("SHOW TABLES LIKE 'Earnings'")->num_rows > 0;
-        if ($hasEarningsTable) {
-            $conn->query("UPDATE Earnings SET Earn_Status='voided' WHERE Earn_BookId=$bookId");
+        $earnRow = fs_find('earnings', [['bookId', '=', $bookId]]);
+        if ($earnRow) {
+            fs_update('earnings', (int)$earnRow['id'], ['status' => 'voided']);
         }
         header("Location: dashboard.php?cancelled=1"); exit();
     } else {
-        // Re-show dashboard with error
-        session_start() ; // already started but store error
         $_SESSION['cancel_error'] = $cancelError;
         header("Location: dashboard.php"); exit();
     }
 }
 
-$custId   = (int) $_SESSION['customer_id'];
+$custId      = (int) $_SESSION['customer_id'];
 $cancelError = $_SESSION['cancel_error'] ?? '';
 unset($_SESSION['cancel_error']);
 $justCancelled = isset($_GET['cancelled']);
 
-$hasPaymentsTable = $conn->query("SHOW TABLES LIKE 'Payments'")->num_rows > 0;
+$bookings = fs_query('bookings', [['custId', '=', $custId]], [['createdAt', 'DESC']]);
 
-if ($hasPaymentsTable) {
-    $bookings = $conn->query("
-        SELECT b.*, h.Hotel_Name, h.Hotel_City, r.Room_Type, r.Room_Price,
-               p.Paymt_Id, p.Paymt_Status
-        FROM Bookings b
-        JOIN Hotels h ON h.Hotel_Id = b.Book_HotelId
-        JOIN Rooms   r ON r.Room_Id  = b.Book_RoomId
-        LEFT JOIN Payments p ON p.Paymt_BookId = b.Book_Id
-        WHERE b.Book_CustId = $custId
-        ORDER BY b.Book_CreatedAt DESC
-    ");
-} else {
-    $bookings = $conn->query("
-        SELECT b.*, h.Hotel_Name, h.Hotel_City, r.Room_Type, r.Room_Price
-        FROM Bookings b
-        JOIN Hotels h ON h.Hotel_Id = b.Book_HotelId
-        JOIN Rooms   r ON r.Room_Id  = b.Book_RoomId
-        WHERE b.Book_CustId = $custId
-        ORDER BY b.Book_CreatedAt DESC
-    ");
+// Enrich bookings with hotel, room, and payment info
+foreach ($bookings as &$b) {
+    $hotel = fs_get('hotels', (int)$b['hotelId']);
+    $b['hotelName'] = $hotel['name'] ?? '';
+    $b['hotelCity'] = $hotel['city'] ?? '';
+
+    $room = fs_get('rooms', (int)$b['roomId']);
+    $b['roomType']  = $room['type']  ?? '';
+    $b['roomPrice'] = $room['price'] ?? 0;
+
+    $payment = fs_find('payments', [['bookId', '=', $b['id']]]);
+    $b['paymtId']     = $payment['id']     ?? null;
+    $b['paymtStatus'] = $payment['status'] ?? null;
 }
+unset($b);
 
 $title = "My Bookings";
 include "../layout/layout.php";
@@ -102,7 +88,7 @@ include "../layout/layout.php";
         </div>
         <?php endif; ?>
 
-        <?php if ($bookings->num_rows === 0): ?>
+        <?php if (empty($bookings)): ?>
             <!-- Empty state -->
             <div style="
                 background:#fff; border-radius:14px; padding:72px 20px;
@@ -126,15 +112,15 @@ include "../layout/layout.php";
 
         <?php else: ?>
 
-            <?php while ($b = $bookings->fetch_assoc()):
-                $nights = max(1, (new DateTime($b['Book_CheckIn']))->diff(new DateTime($b['Book_CheckOut']))->days);
-                $badge  = match($b['Book_Status']) {
+            <?php foreach ($bookings as $b):
+                $nights = max(1, (new DateTime($b['checkIn']))->diff(new DateTime($b['checkOut']))->days);
+                $badge  = match($b['status']) {
                     'confirmed' => '<span class="badge-confirmed">Confirmed</span>',
                     'cancelled' => '<span class="badge-cancelled">Cancelled</span>',
                     'completed' => '<span class="badge-completed">Completed</span>',
                     default     => '<span class="badge-pending">Pending</span>',
                 };
-                $imgSeed = 'reddoorz' . $b['Book_HotelId'];
+                $imgSeed = 'reddoorz' . $b['hotelId'];
             ?>
             <div style="
                 background:#fff; border-radius:14px; margin-bottom:14px;
@@ -165,18 +151,18 @@ include "../layout/layout.php";
 
                     <div style="flex:1; min-width:200px;">
                         <div style="font-size:15px; font-weight:700; margin-bottom:2px;">
-                            <?= htmlspecialchars($b['Hotel_Name']) ?>
+                            <?= htmlspecialchars($b['hotelName']) ?>
                         </div>
                         <div style="font-size:12px; color:var(--rd-muted); margin-bottom:8px; display:flex; align-items:center; gap:5px;">
                             <i class="bi bi-geo-alt-fill" style="font-size:10px; color:var(--rd-red);"></i>
-                            <?= htmlspecialchars($b['Hotel_City']) ?>
+                            <?= htmlspecialchars($b['hotelCity']) ?>
                             &nbsp;&bull;&nbsp;
-                            <?= htmlspecialchars($b['Room_Type']) ?>
+                            <?= htmlspecialchars($b['roomType']) ?>
                         </div>
                         <div style="font-size:12px; color:#555; display:flex; gap:14px; flex-wrap:wrap;">
                             <span style="display:flex; align-items:center; gap:4px;">
                                 <i class="bi bi-calendar-event" style="color:var(--rd-red);"></i>
-                                <?= date('M d', strtotime($b['Book_CheckIn'])) ?> &rarr; <?= date('M d, Y', strtotime($b['Book_CheckOut'])) ?>
+                                <?= date('M d', strtotime($b['checkIn'])) ?> &rarr; <?= date('M d, Y', strtotime($b['checkOut'])) ?>
                             </span>
                             <span style="display:flex; align-items:center; gap:4px;">
                                 <i class="bi bi-moon" style="color:var(--rd-red);"></i>
@@ -184,32 +170,32 @@ include "../layout/layout.php";
                             </span>
                             <span style="display:flex; align-items:center; gap:4px;">
                                 <i class="bi bi-people" style="color:var(--rd-red);"></i>
-                                <?= $b['Book_Guests'] ?> guest<?= $b['Book_Guests'] > 1 ? 's' : '' ?>
+                                <?= $b['guests'] ?> guest<?= $b['guests'] > 1 ? 's' : '' ?>
                             </span>
                         </div>
                     </div>
 
                     <!-- Price + Status + Actions -->
                     <div style="text-align:right; min-width:140px;">
-                        <div class="price-tag" style="font-size:17px;">&#8369;<?= number_format($b['Book_TotalPrice']) ?></div>
+                        <div class="price-tag" style="font-size:17px;">&#8369;<?= number_format($b['totalPrice']) ?></div>
                         <div style="margin:6px 0;"><?= $badge ?></div>
                         <div style="display:flex; gap:7px; justify-content:flex-end; margin-top:8px; flex-wrap:wrap;">
-                            <a href="/customer/booking_detail.php?id=<?= $b['Book_Id'] ?>"
+                            <a href="/customer/booking_detail.php?id=<?= $b['id'] ?>"
                                class="btn-rd-outline" style="font-size:12px; padding:5px 14px; border-radius:6px;">
                                 View
                             </a>
-                            <?php if ($b['Book_Status'] === 'pending'): ?>
-                                <?php $needsPayment = $hasPaymentsTable && empty($b['Paymt_Id']); ?>
+                            <?php if ($b['status'] === 'pending'): ?>
+                                <?php $needsPayment = empty($b['paymtId']); ?>
                                 <?php if ($needsPayment): ?>
-                                <a href="/hotels/payment.php?id=<?= $b['Book_Id'] ?>"
+                                <a href="/hotels/payment.php?id=<?= $b['id'] ?>"
                                    class="btn-rd" style="font-size:12px; padding:5px 14px; border-radius:6px;">
                                     <i class="bi bi-credit-card me-1"></i>Pay Now
                                 </a>
                                 <?php endif; ?>
                             <?php endif; ?>
-                            <?php if (in_array($b['Book_Status'], ['pending', 'confirmed'])): ?>
+                            <?php if (in_array($b['status'], ['pending', 'confirmed'])): ?>
                                 <form method="POST" onsubmit="return confirm('Cancel this booking? This cannot be undone.');" style="margin:0;">
-                                    <input type="hidden" name="book_id" value="<?= $b['Book_Id'] ?>">
+                                    <input type="hidden" name="book_id" value="<?= $b['id'] ?>">
                                     <button type="submit" name="cancel_booking" style="
                                         font-size:12px; background:none; color:#999;
                                         border:1px solid #DDD; border-radius:6px;
@@ -228,7 +214,7 @@ include "../layout/layout.php";
 
                 </div>
             </div>
-            <?php endwhile; ?>
+            <?php endforeach; ?>
 
         <?php endif; ?>
 
@@ -236,5 +222,3 @@ include "../layout/layout.php";
 </div>
 
 <?php include "../layout/footer.php"; ?>
-
-

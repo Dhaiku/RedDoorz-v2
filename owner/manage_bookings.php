@@ -10,52 +10,54 @@ if (!isset($_SESSION['account_id']) || $_SESSION['role'] !== 'hotel_owner') {
 $hotelId = (int) ($_SESSION['hotel_id'] ?? 0);
 if (!$hotelId) { header("Location: /auth/logout.php"); exit(); }
 
-// Handle status update (check-in / check-out only)
+// Handle status update
 $updateMsg = '';
 if (isset($_POST['update_status'])) {
     $bookId    = (int) $_POST['book_id'];
     $newStatus = $_POST['new_status'] ?? '';
-    $allowed   = ['checked_in', 'completed', 'cancelled'];
-
-    $allowed = ['confirmed', 'checked_in', 'completed', 'cancelled'];
+    $allowed   = ['confirmed', 'checked_in', 'completed', 'cancelled'];
 
     if (in_array($newStatus, $allowed)) {
         // Verify this booking belongs to owner's hotel
-        $bRow = $conn->query("SELECT b.*, h.Hotel_OwnerId FROM Bookings b JOIN Hotels h ON h.Hotel_Id=b.Book_HotelId WHERE b.Book_Id=$bookId AND b.Book_HotelId=$hotelId LIMIT 1")->fetch_assoc();
+        $bRow = fs_find('bookings', [['id', '=', $bookId], ['hotelId', '=', $hotelId]]);
         if ($bRow) {
-            $conn->query("UPDATE Bookings SET Book_Status='$newStatus' WHERE Book_Id=$bookId");
+            $oldStatus = $bRow['status'];
+            fs_update('bookings', $bookId, ['status' => $newStatus]);
 
-            $hasEarningsTable = $conn->query("SHOW TABLES LIKE 'Earnings'")->num_rows > 0;
-
-            if ($newStatus === 'confirmed' && $bRow['Book_Status'] === 'pending') {
-                // Walk-in payment collected — create Earnings record now
-                if ($hasEarningsTable) {
-                    $alreadyExists = $conn->query("SELECT Earn_Id FROM Earnings WHERE Earn_BookId=$bookId LIMIT 1")->num_rows > 0;
-                    if (!$alreadyExists) {
-                        $total       = (float) $bRow['Book_TotalPrice'];
-                        $ownerShare  = round($total * 0.85, 2);
-                        $platformFee = round($total * 0.15, 2);
-                        $earnOwnerId = $bRow['Hotel_OwnerId'] ? (int)$bRow['Hotel_OwnerId'] : 'NULL';
-                        $conn->query("
-                            INSERT INTO Earnings
-                                (Earn_BookId, Earn_HotelId, Earn_OwnerId, Earn_TotalAmount, Earn_OwnerShare, Earn_PlatformFee, Earn_Status)
-                            VALUES
-                                ($bookId, $hotelId, $earnOwnerId, $total, $ownerShare, $platformFee, 'pending')
-                        ");
-                    }
+            if ($newStatus === 'confirmed' && $oldStatus === 'pending') {
+                // Walk-in payment collected — create Earnings record if not already existing
+                $alreadyExists = fs_find('earnings', [['bookId', '=', $bookId]]);
+                if (!$alreadyExists) {
+                    $hotel = fs_get('hotels', $hotelId);
+                    $total       = (float) $bRow['totalPrice'];
+                    $ownerShare  = round($total * 0.85, 2);
+                    $platformFee = round($total * 0.15, 2);
+                    $earnOwnerId = (int)($hotel['ownerId'] ?? 0);
+                    fs_insert('earnings', [
+                        'bookId'      => $bookId,
+                        'hotelId'     => $hotelId,
+                        'ownerId'     => $earnOwnerId,
+                        'totalAmount' => $total,
+                        'ownerShare'  => $ownerShare,
+                        'platformFee' => $platformFee,
+                        'status'      => 'pending',
+                    ]);
                 }
             }
 
             if ($newStatus === 'cancelled') {
-                if ($hasEarningsTable) {
-                    $conn->query("UPDATE Earnings SET Earn_Status='voided' WHERE Earn_BookId=$bookId");
+                $earnRow = fs_find('earnings', [['bookId', '=', $bookId]]);
+                if ($earnRow) {
+                    fs_update('earnings', (int)$earnRow['id'], ['status' => 'voided']);
                 }
             }
 
-            // Push notification + Firestore sync on key status changes
-            $custAcctId = (int) $conn->query("SELECT a.Acct_Id FROM Customers c JOIN Accounts a ON a.Acct_Id=c.Cust_AcctId WHERE c.Cust_Id={$bRow['Book_CustId']} LIMIT 1")->fetch_assoc()['Acct_Id'];
+            // Push notification on key status changes
+            $custRow    = fs_get('customers', (int)$bRow['custId']);
+            $custAcctId = (int)($custRow['acctId'] ?? 0);
             $bookRef    = 'RD-' . str_pad($bookId, 4, '0', STR_PAD_LEFT);
-            $hotelName  = $conn->query("SELECT Hotel_Name FROM Hotels WHERE Hotel_Id=$hotelId LIMIT 1")->fetch_assoc()['Hotel_Name'];
+            $hotelRow   = fs_get('hotels', $hotelId);
+            $hotelName  = $hotelRow['name'] ?? '';
             $notifMap   = [
                 'confirmed'  => ['Booking Confirmed! 🎉', "Your booking {$bookRef} at {$hotelName} has been confirmed."],
                 'checked_in' => ['Checked In ✅',         "Welcome to {$hotelName}! Enjoy your stay."],
@@ -64,9 +66,9 @@ if (isset($_POST['update_status'])) {
             ];
             if (isset($notifMap[$newStatus])) {
                 [$nTitle, $nBody] = $notifMap[$newStatus];
-                sendPushNotification($conn, $custAcctId, $nTitle, $nBody, ['booking_id' => (string)$bookId]);
+                sendPushNotification(null, $custAcctId, $nTitle, $nBody, ['booking_id' => (string)$bookId]);
             }
-            syncBookingToFirestore($conn, $bookId);
+            syncBookingToFirestore(null, $bookId);
 
             $updateMsg = 'Booking #' . str_pad($bookId,4,'0',STR_PAD_LEFT) . ' updated.';
         }
@@ -75,19 +77,28 @@ if (isset($_POST['update_status'])) {
 }
 
 // Filter
-$statusFilter = $conn->real_escape_string($_GET['status'] ?? '');
-$where = "b.Book_HotelId = $hotelId";
-if ($statusFilter) $where .= " AND b.Book_Status = '$statusFilter'";
+$statusFilter = $_GET['status'] ?? '';
 
-$bookings = $conn->query("
-    SELECT b.*, r.Room_Type, c.Cust_FName, c.Cust_LName, a.Acct_Email
-    FROM Bookings b
-    JOIN Rooms     r ON r.Room_Id  = b.Book_RoomId
-    JOIN Customers c ON c.Cust_Id  = b.Book_CustId
-    JOIN Accounts  a ON a.Acct_Id  = c.Cust_AcctId
-    WHERE $where
-    ORDER BY b.Book_CreatedAt DESC
-");
+$wheres = [['hotelId', '=', $hotelId]];
+if ($statusFilter) {
+    $wheres[] = ['status', '=', $statusFilter];
+}
+
+$bookings = fs_query('bookings', $wheres, [['createdAt', 'DESC']]);
+
+// Enrich with room type, customer name, and email
+foreach ($bookings as &$b) {
+    $room = fs_get('rooms', (int)$b['roomId']);
+    $b['roomType'] = $room['type'] ?? '';
+
+    $cust = fs_get('customers', (int)$b['custId']);
+    $b['custFirstName'] = $cust['firstName'] ?? '';
+    $b['custLastName']  = $cust['lastName']  ?? '';
+
+    $acct = $cust ? fs_get('accounts', (int)$cust['acctId']) : null;
+    $b['acctEmail'] = $acct['email'] ?? '';
+}
+unset($b);
 
 $title = "Manage Bookings";
 include "../layout/layout.php";
@@ -142,11 +153,11 @@ include "../layout/layout.php";
                         </tr>
                     </thead>
                     <tbody>
-                    <?php if ($bookings->num_rows === 0): ?>
+                    <?php if (empty($bookings)): ?>
                     <tr><td colspan="8" style="text-align:center; padding:40px; color:#999;">No bookings found.</td></tr>
                     <?php endif; ?>
-                    <?php while ($b = $bookings->fetch_assoc()):
-                        $badge = match($b['Book_Status']) {
+                    <?php foreach ($bookings as $b):
+                        $badge = match($b['status']) {
                             'confirmed'  => '<span class="badge-confirmed">Confirmed</span>',
                             'cancelled'  => '<span class="badge-cancelled">Cancelled</span>',
                             'completed'  => '<span class="badge-completed">Completed</span>',
@@ -155,22 +166,22 @@ include "../layout/layout.php";
                         };
                     ?>
                     <tr>
-                        <td style="color:#999;">#<?= str_pad($b['Book_Id'],4,'0',STR_PAD_LEFT) ?></td>
+                        <td style="color:#999;">#<?= str_pad($b['id'],4,'0',STR_PAD_LEFT) ?></td>
                         <td>
-                            <div style="font-weight:600;"><?= htmlspecialchars($b['Cust_FName'].' '.$b['Cust_LName']) ?></div>
-                            <div style="font-size:12px; color:#999;"><?= htmlspecialchars($b['Acct_Email']) ?></div>
+                            <div style="font-weight:600;"><?= htmlspecialchars($b['custFirstName'].' '.$b['custLastName']) ?></div>
+                            <div style="font-size:12px; color:#999;"><?= htmlspecialchars($b['acctEmail']) ?></div>
                         </td>
-                        <td><?= htmlspecialchars($b['Room_Type']) ?></td>
-                        <td><?= date('M d, Y', strtotime($b['Book_CheckIn'])) ?></td>
-                        <td><?= date('M d, Y', strtotime($b['Book_CheckOut'])) ?></td>
-                        <td style="font-weight:700; color:var(--rd-red);">&#8369;<?= number_format($b['Book_TotalPrice']) ?></td>
+                        <td><?= htmlspecialchars($b['roomType']) ?></td>
+                        <td><?= date('M d, Y', strtotime($b['checkIn'])) ?></td>
+                        <td><?= date('M d, Y', strtotime($b['checkOut'])) ?></td>
+                        <td style="font-weight:700; color:var(--rd-red);">&#8369;<?= number_format($b['totalPrice']) ?></td>
                         <td><?= $badge ?></td>
                         <td>
-                            <?php if (in_array($b['Book_Status'], ['confirmed','pending'])): ?>
+                            <?php if (in_array($b['status'], ['confirmed','pending'])): ?>
                             <button type="button" class="btn-rd" style="font-size:12px; padding:5px 12px;"
                                     data-bs-toggle="modal" data-bs-target="#statusModal"
-                                    data-id="<?= $b['Book_Id'] ?>"
-                                    data-status="<?= htmlspecialchars($b['Book_Status']) ?>">
+                                    data-id="<?= $b['id'] ?>"
+                                    data-status="<?= htmlspecialchars($b['status']) ?>">
                                 Update
                             </button>
                             <?php else: ?>
@@ -178,7 +189,7 @@ include "../layout/layout.php";
                             <?php endif; ?>
                         </td>
                     </tr>
-                    <?php endwhile; ?>
+                    <?php endforeach; ?>
                     </tbody>
                 </table>
             </div>

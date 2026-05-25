@@ -1,7 +1,7 @@
 <?php
-$conn = new mysqli("127.0.0.1", "root", "", "reddoorz", 3307);
-
-if ($conn->connect_error) {
-    die("Connection failed: " . $conn->connect_error);
-}
-?>
+/**
+ * db.php — now loads Firestore instead of MySQL.
+ * All code that previously used $conn->query() now uses the
+ * fs_*() helper functions from firestore.php.
+ */
+require_once __DIR__ . '/firestore.php';

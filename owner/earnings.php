@@ -10,36 +10,42 @@ $hotelId = (int) ($_SESSION['hotel_id'] ?? 0);
 $acctId  = (int) $_SESSION['account_id'];
 if (!$hotelId) { header("Location: /auth/logout.php"); exit(); }
 
-$hasEarnings = $conn->query("SHOW TABLES LIKE 'Earnings'")->num_rows > 0;
-$hasPayouts  = $conn->query("SHOW TABLES LIKE 'PayoutRequests'")->num_rows > 0;
+$totalEarnings  = fs_sum('earnings', 'ownerShare', [['hotelId', '=', $hotelId], ['status', '!=', 'voided']]);
+$pendingBalance = fs_sum('earnings', 'ownerShare', [['hotelId', '=', $hotelId], ['status', '=', 'pending']]);
+$paidOut        = fs_sum('earnings', 'ownerShare', [['hotelId', '=', $hotelId], ['status', '=', 'paid_out']]);
 
-$totalEarnings   = 0; $pendingBalance = 0; $paidOut = 0;
-$earnings = null;
+$earningsList = fs_query('earnings', [['hotelId', '=', $hotelId]], [['createdAt', 'DESC']]);
 
-if ($hasEarnings) {
-    $totalEarnings  = $conn->query("SELECT COALESCE(SUM(Earn_OwnerShare),0) v FROM Earnings WHERE Earn_HotelId=$hotelId AND Earn_Status!='voided'")->fetch_assoc()['v'];
-    $pendingBalance = $conn->query("SELECT COALESCE(SUM(Earn_OwnerShare),0) v FROM Earnings WHERE Earn_HotelId=$hotelId AND Earn_Status='pending'")->fetch_assoc()['v'];
-    $paidOut        = $conn->query("SELECT COALESCE(SUM(Earn_OwnerShare),0) v FROM Earnings WHERE Earn_HotelId=$hotelId AND Earn_Status='paid_out'")->fetch_assoc()['v'];
-
-    $earnings = $conn->query("
-        SELECT e.*, b.Book_CheckIn, b.Book_CheckOut, c.Cust_FName, c.Cust_LName
-        FROM Earnings e
-        JOIN Bookings b  ON b.Book_Id  = e.Earn_BookId
-        JOIN Customers c ON c.Cust_Id  = b.Book_CustId
-        WHERE e.Earn_HotelId = $hotelId
-        ORDER BY e.Earn_CreatedAt DESC
-    ");
+// Enrich earnings with booking and customer info
+foreach ($earningsList as &$e) {
+    $booking = fs_get('bookings', (int)$e['bookId']);
+    $e['checkIn']  = $booking['checkIn']  ?? '';
+    $e['checkOut'] = $booking['checkOut'] ?? '';
+    $cust = $booking ? fs_get('customers', (int)$booking['custId']) : null;
+    $e['custFirstName'] = $cust['firstName'] ?? '';
+    $e['custLastName']  = $cust['lastName']  ?? '';
 }
+unset($e);
 
 // Handle payout request
 $payoutMsg = ''; $payoutError = '';
-if (isset($_POST['request_payout']) && $hasPayouts && $pendingBalance > 0) {
-    $method   = $conn->real_escape_string($_POST['payout_method']    ?? 'bank_transfer');
-    $acctNo   = $conn->real_escape_string($_POST['payout_account_no'] ?? '');
-    $amount   = (float) $pendingBalance;
-    $conn->query("INSERT INTO PayoutRequests (Payout_OwnerId,Payout_HotelId,Payout_Amount,Payout_Method,Payout_AccountNo) VALUES ($acctId,$hotelId,$amount,'$method','$acctNo')");
+if (isset($_POST['request_payout']) && $pendingBalance > 0) {
+    $method  = $_POST['payout_method']     ?? 'bank_transfer';
+    $acctNo  = $_POST['payout_account_no'] ?? '';
+    $amount  = (float) $pendingBalance;
+    fs_insert('payoutrequests', [
+        'ownerId'   => $acctId,
+        'hotelId'   => $hotelId,
+        'amount'    => $amount,
+        'method'    => $method,
+        'accountNo' => $acctNo,
+        'status'    => 'pending',
+    ]);
     // Mark earnings as pending_payout
-    $conn->query("UPDATE Earnings SET Earn_Status='pending_payout' WHERE Earn_HotelId=$hotelId AND Earn_Status='pending'");
+    $pendingEarns = fs_query('earnings', [['hotelId', '=', $hotelId], ['status', '=', 'pending']]);
+    foreach ($pendingEarns as $pe) {
+        fs_update('earnings', (int)$pe['id'], ['status' => 'pending_payout']);
+    }
     $payoutMsg = 'Payout request submitted. The admin will process it within 3–5 business days.';
     header("Location: earnings.php?msg=" . urlencode($payoutMsg)); exit();
 }
@@ -63,13 +69,6 @@ include "../layout/layout.php";
             <i class="bi bi-check-circle-fill"></i> <?= htmlspecialchars($_GET['msg']) ?>
         </div>
         <?php endif; ?>
-
-        <?php if (!$hasEarnings): ?>
-        <div style="background:#FFF8E1; border:1px solid #FFE082; border-radius:8px; padding:16px; color:#7B5800; font-size:13px;">
-            <i class="bi bi-exclamation-triangle me-2"></i>
-            Earnings tracking requires the database migration to be run. Please run <code>config/migration_owner.sql</code>.
-        </div>
-        <?php else: ?>
 
         <!-- Summary cards -->
         <div class="row g-4 mb-4">
@@ -115,7 +114,7 @@ include "../layout/layout.php";
         </div>
 
         <!-- Request payout -->
-        <?php if ($pendingBalance > 0 && $hasPayouts): ?>
+        <?php if ($pendingBalance > 0): ?>
         <div style="background:#fff; border-radius:14px; padding:22px 24px; box-shadow:var(--rd-shadow); margin-bottom:24px; border:1px solid rgba(228,223,223,0.5); display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:16px;">
             <div>
                 <div style="font-size:15px; font-weight:700; margin-bottom:4px;">
@@ -148,12 +147,11 @@ include "../layout/layout.php";
                         </tr>
                     </thead>
                     <tbody>
-                    <?php if (!$earnings || $earnings->num_rows === 0): ?>
+                    <?php if (empty($earningsList)): ?>
                     <tr><td colspan="7" style="text-align:center; padding:40px; color:#999;">No earnings yet.</td></tr>
                     <?php endif; ?>
-                    <?php while ($e = $earnings ? $earnings->fetch_assoc() : null):
-                        if (!$e) break;
-                        $earnBadge = match($e['Earn_Status']) {
+                    <?php foreach ($earningsList as $e):
+                        $earnBadge = match($e['status']) {
                             'paid_out'       => '<span class="badge-completed">Paid Out</span>',
                             'pending_payout' => '<span class="badge-confirmed">Processing</span>',
                             'voided'         => '<span class="badge-voided">Voided</span>',
@@ -161,29 +159,26 @@ include "../layout/layout.php";
                         };
                     ?>
                     <tr>
-                        <td style="color:#999;">#<?= str_pad($e['Earn_BookId'],4,'0',STR_PAD_LEFT) ?></td>
-                        <td style="font-weight:600;"><?= htmlspecialchars($e['Cust_FName'].' '.$e['Cust_LName']) ?></td>
+                        <td style="color:#999;">#<?= str_pad($e['bookId'],4,'0',STR_PAD_LEFT) ?></td>
+                        <td style="font-weight:600;"><?= htmlspecialchars($e['custFirstName'].' '.$e['custLastName']) ?></td>
                         <td style="color:#555;">
-                            <?= date('M d', strtotime($e['Book_CheckIn'])) ?> &ndash; <?= date('M d, Y', strtotime($e['Book_CheckOut'])) ?>
+                            <?= date('M d', strtotime($e['checkIn'])) ?> &ndash; <?= date('M d, Y', strtotime($e['checkOut'])) ?>
                         </td>
-                        <td>&#8369;<?= number_format($e['Earn_TotalAmount'], 2) ?></td>
-                        <td style="font-weight:700; color:var(--rd-red);">&#8369;<?= number_format($e['Earn_OwnerShare'], 2) ?></td>
-                        <td style="color:#999;">&#8369;<?= number_format($e['Earn_PlatformFee'], 2) ?></td>
+                        <td>&#8369;<?= number_format($e['totalAmount'], 2) ?></td>
+                        <td style="font-weight:700; color:var(--rd-red);">&#8369;<?= number_format($e['ownerShare'], 2) ?></td>
+                        <td style="color:#999;">&#8369;<?= number_format($e['platformFee'], 2) ?></td>
                         <td><?= $earnBadge ?></td>
                     </tr>
-                    <?php endwhile; ?>
+                    <?php endforeach; ?>
                     </tbody>
                 </table>
             </div>
         </div>
 
-        <?php endif; ?>
-
     </div>
 </div>
 
 <!-- Payout Request Modal -->
-<?php if ($hasPayouts): ?>
 <div class="modal fade" id="payoutModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content" style="border-radius:14px; border:none;">
@@ -220,6 +215,5 @@ include "../layout/layout.php";
         </div>
     </div>
 </div>
-<?php endif; ?>
 
 <?php include "../layout/footer.php"; ?>

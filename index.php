@@ -1,16 +1,25 @@
-﻿<?php
+<?php
 $title = "Affordable Hotels Across the Philippines";
 require_once "config/db.php";
 include "layout/layout.php";
 
-// Featured hotels
-$featured = $conn->query("SELECT * FROM Hotels WHERE Hotel_Status='active' ORDER BY Hotel_Rating DESC LIMIT 6");
+// Featured hotels — top 6 by rating
+$featured = fs_query('hotels', [['status', '=', 'active']], [['rating', 'DESC']], 6);
 
-// Min price per hotel
+// Min price per hotel: load available rooms for those 6 hotels
 $prices = [];
-$priceResult = $conn->query("SELECT Room_HotelId, MIN(Room_Price) as MinPrice FROM Rooms WHERE Room_Status='available' GROUP BY Room_HotelId");
-while ($row = $priceResult->fetch_assoc()) {
-    $prices[$row['Room_HotelId']] = $row['MinPrice'];
+foreach ($featured as $fh) {
+    $hId = (int)$fh['id'];
+    $availRooms = fs_query('rooms', [['hotelId', '=', $hId], ['status', '=', 'available']]);
+    $min = null;
+    foreach ($availRooms as $r) {
+        if ($min === null || (float)$r['price'] < $min) {
+            $min = (float)$r['price'];
+        }
+    }
+    if ($min !== null) {
+        $prices[$hId] = $min;
+    }
 }
 
 $isLoggedIn = isset($_SESSION['account_id']);
@@ -28,7 +37,6 @@ $isLoggedIn = isset($_SESSION['account_id']);
     margin-top: -64px;
     padding-top: 64px;
 ">
-    <!-- Gradient overlay — darker on left, fades right -->
     <div style="
         position: absolute; inset: 0;
         background: linear-gradient(105deg,
@@ -40,7 +48,6 @@ $isLoggedIn = isset($_SESSION['account_id']);
     <div class="container" style="position:relative; z-index:1; padding: 100px 16px 80px;">
         <div style="max-width:580px;">
 
-            <!-- Eyebrow label -->
             <div class="animate-fade-up" style="
                 display: inline-flex; align-items: center; gap: 7px;
                 background: rgba(184,0,32,0.8); border: 1px solid rgba(184,0,32,0.6);
@@ -73,7 +80,6 @@ $isLoggedIn = isset($_SESSION['account_id']);
             </p>
 
             <?php if ($isLoggedIn): ?>
-                <!-- Search form for logged-in users -->
                 <div class="animate-fade-up delay-300" style="
                     background: #fff;
                     border-radius: 16px;
@@ -83,7 +89,6 @@ $isLoggedIn = isset($_SESSION['account_id']);
                 ">
                     <form method="GET" action="/hotels/search.php" id="heroSearchForm">
                         <div class="row g-3 align-items-end">
-                            <!-- Destination — full width on its own row -->
                             <div class="col-12">
                                 <label class="form-label" style="font-size:13px; font-weight:600; color:#333; margin-bottom:5px;">
                                     <i class="bi bi-geo-alt-fill me-1" style="color:var(--rd-red)"></i>Destination
@@ -92,7 +97,6 @@ $isLoggedIn = isset($_SESSION['account_id']);
                                        placeholder="City or hotel name"
                                        value="<?= htmlspecialchars($_GET['city'] ?? '') ?>">
                             </div>
-                            <!-- Check-in -->
                             <div class="col-md-5">
                                 <label class="form-label" style="font-size:13px; font-weight:600; color:#333; margin-bottom:5px;">
                                     <i class="bi bi-calendar-event me-1" style="color:var(--rd-red)"></i>Check-in
@@ -102,7 +106,6 @@ $isLoggedIn = isset($_SESSION['account_id']);
                                        style="min-width:0;"
                                        value="<?= htmlspecialchars($_GET['checkin'] ?? '') ?>">
                             </div>
-                            <!-- Check-out -->
                             <div class="col-md-5">
                                 <label class="form-label" style="font-size:13px; font-weight:600; color:#333; margin-bottom:5px;">
                                     <i class="bi bi-calendar-check me-1" style="color:var(--rd-red)"></i>Check-out
@@ -112,7 +115,6 @@ $isLoggedIn = isset($_SESSION['account_id']);
                                        style="min-width:0;"
                                        value="<?= htmlspecialchars($_GET['checkout'] ?? '') ?>">
                             </div>
-                            <!-- Search button -->
                             <div class="col-md-2">
                                 <button type="submit" class="btn-rd w-100"
                                         style="padding:11px 8px; font-size:14px; border-radius:8px; justify-content:center;">
@@ -124,7 +126,6 @@ $isLoggedIn = isset($_SESSION['account_id']);
                 </div>
 
                 <script>
-                // Keep check-out min date always 1 day after check-in
                 (function () {
                     var ci = document.getElementById('heroCheckin');
                     var co = document.getElementById('heroCheckout');
@@ -138,17 +139,15 @@ $isLoggedIn = isset($_SESSION['account_id']);
                         var dd   = String(next.getDate()).padStart(2, '0');
                         var minDate = yyyy + '-' + mm + '-' + dd;
                         co.min = minDate;
-                        // if checkout is before or equal to checkin, clear it
                         if (co.value && co.value <= ci.value) {
                             co.value = minDate;
                         }
                     }
                     ci.addEventListener('change', updateMin);
-                    updateMin(); // run on page load to restore correct min
+                    updateMin();
                 })();
                 </script>
             <?php else: ?>
-                <!-- CTA for guests -->
                 <div class="animate-fade-up delay-300" style="display:flex; gap:12px; flex-wrap:wrap;">
                     <a href="/auth/login.php" class="btn-rd" style="padding:13px 32px; font-size:15px;">
                         <i class="bi bi-box-arrow-in-right"></i> Login to Book
@@ -241,30 +240,25 @@ $isLoggedIn = isset($_SESSION['account_id']);
         </div>
 
         <div class="row g-4">
-            <?php
-            $hotelIdx = 0;
-            while ($hotel = $featured->fetch_assoc()):
-                $minPrice = $prices[$hotel['Hotel_Id']] ?? null;
-                $rating   = $hotel['Hotel_Rating'];
+            <?php foreach ($featured as $hotelIdx => $hotel):
+                $minPrice = $prices[(int)$hotel['id']] ?? null;
+                $rating   = $hotel['rating'] ?? 0;
                 $stars    = round($rating);
-                $imgSeed  = 'reddoorz' . $hotel['Hotel_Id'];
-                $hotelIdx++;
+                $imgSeed  = 'reddoorz' . $hotel['id'];
             ?>
-            <div class="col-md-6 col-lg-4" data-aos="fade-up" data-aos-delay="<?= ($hotelIdx - 1) * 80 ?>">
+            <div class="col-md-6 col-lg-4" data-aos="fade-up" data-aos-delay="<?= $hotelIdx * 80 ?>">
                 <div class="card-rd h-100">
 
                     <!-- Hotel image -->
                     <div style="height:196px; position:relative; overflow:hidden;">
                         <img src="https://picsum.photos/seed/<?= $imgSeed ?>/640/400"
-                             alt="<?= htmlspecialchars($hotel['Hotel_Name']) ?>"
+                             alt="<?= htmlspecialchars($hotel['name']) ?>"
                              style="width:100%; height:100%; object-fit:cover; transition:transform 0.4s ease;"
                              onmouseover="this.style.transform='scale(1.04)'"
                              onmouseout="this.style.transform='scale(1)'">
-                        <!-- Rating badge -->
                         <div style="
                             position:absolute; top:12px; left:12px;
-                            background:rgba(184,0,32,0.88);
-                            backdrop-filter:blur(4px);
+                            background:rgba(184,0,32,0.88); backdrop-filter:blur(4px);
                             color:#fff; font-size:11px; font-weight:700;
                             padding:4px 10px; border-radius:20px;
                             display:flex; align-items:center; gap:4px;
@@ -272,25 +266,23 @@ $isLoggedIn = isset($_SESSION['account_id']);
                             <i class="bi bi-star-fill" style="font-size:9px;"></i>
                             <?= number_format($rating, 1) ?>
                         </div>
-                        <!-- City badge -->
                         <div style="
                             position:absolute; top:12px; right:12px;
-                            background:rgba(0,0,0,0.52);
-                            backdrop-filter:blur(4px);
+                            background:rgba(0,0,0,0.52); backdrop-filter:blur(4px);
                             color:#fff; font-size:11px;
                             padding:4px 10px; border-radius:20px;
                         ">
-                            <?= htmlspecialchars($hotel['Hotel_City']) ?>
+                            <?= htmlspecialchars($hotel['city']) ?>
                         </div>
                     </div>
 
                     <div style="padding:18px 20px 20px;">
                         <h5 style="font-size:15px; font-weight:700; margin:0 0 5px; line-height:1.3;">
-                            <?= htmlspecialchars($hotel['Hotel_Name']) ?>
+                            <?= htmlspecialchars($hotel['name']) ?>
                         </h5>
                         <p style="font-size:13px; color:var(--rd-muted); margin:0 0 14px; display:flex; align-items:center; gap:4px;">
                             <i class="bi bi-geo-alt-fill" style="font-size:11px; color:var(--rd-red);"></i>
-                            <?= htmlspecialchars($hotel['Hotel_Address'] ?? $hotel['Hotel_City']) ?>
+                            <?= htmlspecialchars($hotel['address'] ?? $hotel['city']) ?>
                         </p>
 
                         <div class="d-flex justify-content-between align-items-center">
@@ -310,7 +302,7 @@ $isLoggedIn = isset($_SESSION['account_id']);
                             <?php endif; ?>
                         </div>
 
-                        <a href="/hotels/hotel_detail.php?id=<?= $hotel['Hotel_Id'] ?>"
+                        <a href="/hotels/hotel_detail.php?id=<?= $hotel['id'] ?>"
                            class="btn-rd mt-3 d-block text-center"
                            style="border-radius:8px; padding:10px; justify-content:center;">
                             View &amp; Book
@@ -319,18 +311,17 @@ $isLoggedIn = isset($_SESSION['account_id']);
 
                 </div>
             </div>
-            <?php endwhile; ?>
+            <?php endforeach; ?>
         </div>
 
     </div>
 </section>
 
-<!-- ===== WHY REDDOORZ (Asymmetric 2-col) ===== -->
+<!-- ===== WHY REDDOORZ ===== -->
 <section style="background:#fff; padding:80px 0;">
     <div class="container">
         <div class="row g-5 align-items-center">
 
-            <!-- Left: text block -->
             <div class="col-lg-5" data-aos="fade-right">
                 <div class="section-label">Why RedDoorz</div>
                 <h2 class="section-title">A smarter way<br>to book a hotel</h2>
@@ -342,10 +333,8 @@ $isLoggedIn = isset($_SESSION['account_id']);
                 </a>
             </div>
 
-            <!-- Right: feature list -->
             <div class="col-lg-7">
                 <div class="row g-4">
-
                     <?php
                     $features = [
                         ['bi-cash-coin',     'Transparent Pricing',   'The price you see is what you pay. Taxes and fees are always included upfront.', '0'],
@@ -365,8 +354,7 @@ $isLoggedIn = isset($_SESSION['account_id']);
                         ">
                             <div style="
                                 width: 42px; height: 42px; flex-shrink: 0;
-                                background: var(--rd-red-pale);
-                                border-radius: 10px;
+                                background: var(--rd-red-pale); border-radius: 10px;
                                 display: flex; align-items: center; justify-content: center;
                                 font-size: 20px; color: var(--rd-red);
                             ">
@@ -379,7 +367,6 @@ $isLoggedIn = isset($_SESSION['account_id']);
                         </div>
                     </div>
                     <?php endforeach; ?>
-
                 </div>
             </div>
 
@@ -403,7 +390,6 @@ $isLoggedIn = isset($_SESSION['account_id']);
                 [
                     'name'   => 'Maria Santos',
                     'role'   => 'Marketing Professional &mdash; Makati',
-                    'seed'   => 'ms-rdz-2024',
                     'rating' => 5,
                     'quote'  => 'Stayed here for a work trip and was genuinely impressed with how clean everything was. The booking was seamless and the final price matched exactly what I saw online.',
                     'delay'  => 0,
@@ -411,7 +397,6 @@ $isLoggedIn = isset($_SESSION['account_id']);
                 [
                     'name'   => 'Rico Valdez',
                     'role'   => 'Entrepreneur &mdash; Cebu City',
-                    'seed'   => 'rv-rdz-2024',
                     'rating' => 5,
                     'quote'  => 'The Cebu property exceeded my expectations. Great value, WiFi that actually worked, and the staff were genuinely accommodating. Already booked again for next month.',
                     'delay'  => 100,
@@ -419,7 +404,6 @@ $isLoggedIn = isset($_SESSION['account_id']);
                 [
                     'name'   => 'Theresa Ocampo',
                     'role'   => 'Teacher &mdash; Quezon City',
-                    'seed'   => 'to-rdz-2024',
                     'rating' => 5,
                     'quote'  => 'First time using RedDoorz and I will not go back to other platforms. Simple interface, honest pricing, and zero surprise fees when I checked in.',
                     'delay'  => 200,
@@ -429,29 +413,19 @@ $isLoggedIn = isset($_SESSION['account_id']);
             ?>
             <div class="col-md-4" data-aos="fade-up" data-aos-delay="<?= $t['delay'] ?>">
                 <div style="
-                    background: #fff;
-                    border: 1px solid var(--rd-border);
-                    border-radius: 14px;
-                    padding: 28px;
-                    height: 100%;
-                    display: flex;
-                    flex-direction: column;
-                    gap: 18px;
+                    background: #fff; border: 1px solid var(--rd-border);
+                    border-radius: 14px; padding: 28px; height: 100%;
+                    display: flex; flex-direction: column; gap: 18px;
                     box-shadow: var(--rd-shadow);
                 ">
-                    <!-- Stars -->
                     <div>
                         <?php for ($i = 0; $i < $t['rating']; $i++): ?>
                             <i class="bi bi-star-fill" style="color:#C98A00; font-size:13px;"></i>
                         <?php endfor; ?>
                     </div>
-
-                    <!-- Quote -->
                     <p style="font-size:14px; color:#333; line-height:1.68; margin:0; flex:1;">
                         &ldquo;<?= $t['quote'] ?>&rdquo;
                     </p>
-
-                    <!-- Author -->
                     <div style="display:flex; align-items:center; gap:12px; border-top:1px solid var(--rd-border); padding-top:16px;">
                         <img src="https://ui-avatars.com/api/?name=<?= urlencode($t['name']) ?>&background=B80020&color=fff&size=48&rounded=true&bold=true"
                              alt="<?= htmlspecialchars($t['name']) ?>"
@@ -484,8 +458,7 @@ $isLoggedIn = isset($_SESSION['account_id']);
                     Over 200 properties across the Philippines. No hidden charges, no booking fees &mdash; just the best price, every time.
                 </p>
             </div>
-            <div class="col-lg-5 d-flex gap-3 flex-wrap" data-aos="fade-left"
-                 style="justify-content: flex-start;">
+            <div class="col-lg-5 d-flex gap-3 flex-wrap" data-aos="fade-left" style="justify-content: flex-start;">
                 <?php if (!$isLoggedIn): ?>
                     <a href="/auth/register.php" style="
                         display: inline-flex; align-items: center; gap: 6px;
@@ -523,21 +496,14 @@ $isLoggedIn = isset($_SESSION['account_id']);
     <div class="container">
         <div style="
             background: linear-gradient(135deg, #880016 0%, #B80020 60%, #D4001F 100%);
-            border-radius: 24px;
-            overflow: hidden;
-            position: relative;
+            border-radius: 24px; overflow: hidden; position: relative;
             padding: 60px 56px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 40px;
-            flex-wrap: wrap;
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 40px; flex-wrap: wrap;
         ">
-            <!-- Decorative circles -->
             <div style="position:absolute; top:-40px; right:-40px; width:240px; height:240px; border-radius:50%; background:rgba(255,255,255,0.06); pointer-events:none;"></div>
             <div style="position:absolute; bottom:-60px; right:80px; width:180px; height:180px; border-radius:50%; background:rgba(255,255,255,0.04); pointer-events:none;"></div>
 
-            <!-- Text content -->
             <div style="position:relative; z-index:1; max-width:500px;">
                 <div style="
                     display: inline-flex; align-items: center; gap: 6px;
@@ -563,8 +529,7 @@ $isLoggedIn = isset($_SESSION['account_id']);
                         padding: 12px 28px; border-radius: 8px;
                         font-size: 14px; font-weight: 700;
                         transition: background 0.18s;
-                        font-family: 'DM Sans', sans-serif;
-                        text-decoration: none;
+                        font-family: 'DM Sans', sans-serif; text-decoration: none;
                     "
                     onmouseover="this.style.background='#f5eaea'"
                     onmouseout="this.style.background='#fff'">
@@ -577,8 +542,7 @@ $isLoggedIn = isset($_SESSION['account_id']);
                         padding: 11px 24px; border-radius: 8px;
                         font-size: 14px; font-weight: 600;
                         transition: all 0.18s;
-                        font-family: 'DM Sans', sans-serif;
-                        text-decoration: none;
+                        font-family: 'DM Sans', sans-serif; text-decoration: none;
                     "
                     onmouseover="this.style.background='rgba(255,255,255,0.12)'"
                     onmouseout="this.style.background='transparent'">
@@ -587,7 +551,6 @@ $isLoggedIn = isset($_SESSION['account_id']);
                 </div>
             </div>
 
-            <!-- Feature pills -->
             <div style="position:relative; z-index:1; display:flex; flex-direction:column; gap:12px; min-width:220px;">
                 <?php
                 $perks = [
@@ -599,10 +562,8 @@ $isLoggedIn = isset($_SESSION['account_id']);
                 foreach ($perks as [$icon, $text]):
                 ?>
                 <div style="
-                    background: rgba(255,255,255,0.12);
-                    border: 1px solid rgba(255,255,255,0.18);
-                    border-radius: 10px;
-                    padding: 11px 16px;
+                    background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.18);
+                    border-radius: 10px; padding: 11px 16px;
                     display: flex; align-items: center; gap: 10px;
                     font-size: 13px; color: #fff; font-weight: 500;
                 ">
@@ -614,7 +575,6 @@ $isLoggedIn = isset($_SESSION['account_id']);
         </div>
     </div>
 </section>
-<!-- ===== /BECOME A HOTEL PARTNER ===== -->
 
 
 <?php include "layout/footer.php"; ?>

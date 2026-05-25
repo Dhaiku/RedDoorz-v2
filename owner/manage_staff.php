@@ -10,17 +10,16 @@ $hotelId = (int) ($_SESSION['hotel_id'] ?? 0);
 $acctId  = (int) $_SESSION['account_id'];
 if (!$hotelId) { header("Location: /auth/logout.php"); exit(); }
 
-$hasTable = $conn->query("SHOW TABLES LIKE 'HotelStaff'")->num_rows > 0;
 $msg = ''; $error = '';
 
 // Add staff
-if (isset($_POST['add_staff']) && $hasTable) {
-    $fname  = trim($conn->real_escape_string($_POST['staff_fname']  ?? ''));
-    $lname  = trim($conn->real_escape_string($_POST['staff_lname']  ?? ''));
-    $mi     = trim($conn->real_escape_string($_POST['staff_mi']     ?? ''));
-    $role   = trim($conn->real_escape_string($_POST['staff_role']   ?? 'front_desk'));
-    $phone  = trim($_POST['staff_phone'] ?? '');
-    $email  = trim($_POST['staff_email'] ?? '');
+if (isset($_POST['add_staff'])) {
+    $fname  = trim($_POST['staff_fname']  ?? '');
+    $lname  = trim($_POST['staff_lname']  ?? '');
+    $mi     = trim($_POST['staff_mi']     ?? '');
+    $role   = trim($_POST['staff_role']   ?? 'front_desk');
+    $phone  = trim($_POST['staff_phone']  ?? '');
+    $email  = trim($_POST['staff_email']  ?? '');
 
     $fullName    = trim($fname . ' ' . $lname . ($mi ? ' ' . rtrim($mi, '.') . '.' : ''));
     $phoneDigits = preg_replace('/\D/', '', $phone);
@@ -35,31 +34,42 @@ if (isset($_POST['add_staff']) && $hasTable) {
         if ($phoneDigits) {
             $phone = substr($phoneDigits,0,4).'-'.substr($phoneDigits,4,3).'-'.substr($phoneDigits,7,4);
         }
-        $name  = $conn->real_escape_string($fullName);
-        $phone = $conn->real_escape_string($phone);
-        $email = $conn->real_escape_string($email);
-        $conn->query("INSERT INTO HotelStaff (Staff_HotelId,Staff_OwnerId,Staff_Name,Staff_Role,Staff_Phone,Staff_Email) VALUES ($hotelId,$acctId,'$name','$role','$phone','$email')");
+        fs_insert('hotelstaff', [
+            'hotelId' => $hotelId,
+            'ownerId' => $acctId,
+            'name'    => $fullName,
+            'role'    => $role,
+            'phone'   => $phone,
+            'email'   => $email,
+            'status'  => 'active',
+        ]);
         $msg = 'Staff member added.';
     }
     if ($msg) { header("Location: manage_staff.php?msg=" . urlencode($msg)); exit(); }
 }
 
 // Toggle status
-if (isset($_POST['toggle_staff']) && $hasTable) {
+if (isset($_POST['toggle_staff'])) {
     $staffId   = (int) $_POST['staff_id'];
     $newStatus = $_POST['new_status'] === 'active' ? 'active' : 'inactive';
-    $conn->query("UPDATE HotelStaff SET Staff_Status='$newStatus' WHERE Staff_Id=$staffId AND Staff_HotelId=$hotelId");
+    $check = fs_find('hotelstaff', [['id', '=', $staffId], ['hotelId', '=', $hotelId]]);
+    if ($check) {
+        fs_update('hotelstaff', $staffId, ['status' => $newStatus]);
+    }
     header("Location: manage_staff.php?msg=Staff+updated."); exit();
 }
 
 // Delete staff
-if (isset($_POST['delete_staff']) && $hasTable) {
+if (isset($_POST['delete_staff'])) {
     $staffId = (int) $_POST['staff_id'];
-    $conn->query("DELETE FROM HotelStaff WHERE Staff_Id=$staffId AND Staff_HotelId=$hotelId");
+    $check = fs_find('hotelstaff', [['id', '=', $staffId], ['hotelId', '=', $hotelId]]);
+    if ($check) {
+        fs_delete('hotelstaff', $staffId);
+    }
     header("Location: manage_staff.php?msg=Staff+removed."); exit();
 }
 
-$staff = $hasTable ? $conn->query("SELECT * FROM HotelStaff WHERE Staff_HotelId=$hotelId ORDER BY Staff_Name") : null;
+$staff = fs_query('hotelstaff', [['hotelId', '=', $hotelId]], [['name', 'ASC']]);
 
 $title = "Manage Staff";
 include "../layout/layout.php";
@@ -91,12 +101,7 @@ include "../layout/layout.php";
         </div>
         <?php endif; ?>
 
-        <?php if (!$hasTable): ?>
-        <div style="background:#FFF8E1; border:1px solid #FFE082; border-radius:8px; padding:16px; color:#7B5800; font-size:13px;">
-            <i class="bi bi-exclamation-triangle me-2"></i>
-            Staff management requires the database migration to be run first. Please run <code>config/migration_owner.sql</code>.
-        </div>
-        <?php elseif ($staff && $staff->num_rows === 0): ?>
+        <?php if (empty($staff)): ?>
         <div style="background:#fff; border-radius:14px; padding:60px 20px; text-align:center; box-shadow:var(--rd-shadow); border:1px solid rgba(228,223,223,0.5);">
             <div style="font-size:40px; color:var(--rd-red); margin-bottom:14px;"><i class="bi bi-people"></i></div>
             <h5 style="font-size:16px; font-weight:700; margin:0 0 8px;">No staff members yet</h5>
@@ -120,14 +125,14 @@ include "../layout/layout.php";
                         </tr>
                     </thead>
                     <tbody>
-                    <?php while ($s = $staff->fetch_assoc()): ?>
+                    <?php foreach ($staff as $s): ?>
                     <tr>
-                        <td style="font-weight:600;"><?= htmlspecialchars($s['Staff_Name']) ?></td>
-                        <td style="color:#555;"><?= htmlspecialchars(ucfirst(str_replace('_',' ',$s['Staff_Role']))) ?></td>
-                        <td style="color:#555;"><?= htmlspecialchars($s['Staff_Phone'] ?: '—') ?></td>
-                        <td style="color:#555;"><?= htmlspecialchars($s['Staff_Email'] ?: '—') ?></td>
+                        <td style="font-weight:600;"><?= htmlspecialchars($s['name']) ?></td>
+                        <td style="color:#555;"><?= htmlspecialchars(ucfirst(str_replace('_',' ',$s['role']))) ?></td>
+                        <td style="color:#555;"><?= htmlspecialchars($s['phone'] ?: '—') ?></td>
+                        <td style="color:#555;"><?= htmlspecialchars($s['email'] ?: '—') ?></td>
                         <td>
-                            <?php if ($s['Staff_Status'] === 'active'): ?>
+                            <?php if ($s['status'] === 'active'): ?>
                             <span class="badge-confirmed">Active</span>
                             <?php else: ?>
                             <span class="badge-voided">Inactive</span>
@@ -136,14 +141,14 @@ include "../layout/layout.php";
                         <td>
                             <div style="display:flex; gap:8px; flex-wrap:wrap;">
                                 <form method="POST" style="margin:0;">
-                                    <input type="hidden" name="staff_id" value="<?= $s['Staff_Id'] ?>">
-                                    <input type="hidden" name="new_status" value="<?= $s['Staff_Status'] === 'active' ? 'inactive' : 'active' ?>">
+                                    <input type="hidden" name="staff_id" value="<?= $s['id'] ?>">
+                                    <input type="hidden" name="new_status" value="<?= $s['status'] === 'active' ? 'inactive' : 'active' ?>">
                                     <button type="submit" name="toggle_staff" class="btn-rd-outline" style="font-size:12px; padding:4px 12px;">
-                                        <?= $s['Staff_Status'] === 'active' ? 'Deactivate' : 'Activate' ?>
+                                        <?= $s['status'] === 'active' ? 'Deactivate' : 'Activate' ?>
                                     </button>
                                 </form>
                                 <form method="POST" style="margin:0;" onsubmit="return confirm('Remove this staff member?');">
-                                    <input type="hidden" name="staff_id" value="<?= $s['Staff_Id'] ?>">
+                                    <input type="hidden" name="staff_id" value="<?= $s['id'] ?>">
                                     <button type="submit" name="delete_staff" style="font-size:12px; background:#FEF2F2; color:#B91C1C; border:1px solid #FECACA; border-radius:6px; padding:4px 12px; cursor:pointer; font-weight:600; font-family:'DM Sans',sans-serif;">
                                         Remove
                                     </button>
@@ -151,7 +156,7 @@ include "../layout/layout.php";
                             </div>
                         </td>
                     </tr>
-                    <?php endwhile; ?>
+                    <?php endforeach; ?>
                     </tbody>
                 </table>
             </div>

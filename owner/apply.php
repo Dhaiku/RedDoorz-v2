@@ -7,35 +7,35 @@ $success = false;
 $error   = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['apply'])) {
-    $firstName   = trim($conn->real_escape_string($_POST['first_name']      ?? ''));
-    $lastName    = trim($conn->real_escape_string($_POST['last_name']       ?? ''));
-    $middleInit  = trim($conn->real_escape_string($_POST['middle_initial']  ?? ''));
-    $fullName    = trim($firstName . ' ' . $lastName . ($middleInit ? ' ' . rtrim($middleInit, '.') . '.' : ''));
-    $email       = trim($conn->real_escape_string($_POST['email']        ?? ''));
-    $phone       = trim($conn->real_escape_string($_POST['phone']        ?? ''));
-    $hotelName   = trim($conn->real_escape_string($_POST['hotel_name']   ?? ''));
-    $hotelCity   = trim($conn->real_escape_string($_POST['hotel_city']   ?? ''));
-    $hotelAddr   = trim($conn->real_escape_string($_POST['hotel_address']?? ''));
-    $roomCount   = max(1, (int)($_POST['room_count'] ?? 1));
-    $message     = trim($conn->real_escape_string($_POST['message']      ?? ''));
+    $firstName  = trim($_POST['first_name']      ?? '');
+    $lastName   = trim($_POST['last_name']       ?? '');
+    $middleInit = trim($_POST['middle_initial']  ?? '');
+    $fullName   = trim($firstName . ' ' . $lastName . ($middleInit ? ' ' . rtrim($middleInit, '.') . '.' : ''));
+    $email      = trim($_POST['email']        ?? '');
+    $phone      = trim($_POST['phone']        ?? '');
+    $hotelName  = trim($_POST['hotel_name']   ?? '');
+    $hotelCity  = trim($_POST['hotel_city']   ?? '');
+    $hotelAddr  = trim($_POST['hotel_address']?? '');
+    $roomCount  = max(1, (int)($_POST['room_count'] ?? 1));
+    $message    = trim($_POST['message']      ?? '');
 
     if (!$firstName || !$lastName || !$email || !$phone || !$hotelName || !$hotelCity) {
         $error = 'Please fill in all required fields.';
-    } elseif (!filter_var(str_replace('\x27','',$_POST['email']), FILTER_VALIDATE_EMAIL)) {
+    } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
         $error = 'Please enter a valid email address.';
     } else {
-        $hasTable = $conn->query("SHOW TABLES LIKE 'OwnerApplications'")->num_rows > 0;
-        if ($hasTable) {
-            $conn->query("
-                INSERT INTO OwnerApplications
-                    (App_FullName, App_Email, App_Phone, App_HotelName, App_HotelCity, App_HotelAddress, App_RoomCount, App_Message)
-                VALUES
-                    ('$fullName','$email','$phone','$hotelName','$hotelCity','$hotelAddr',$roomCount,'$message')
-            ");
-            $success = true;
-        } else {
-            $error = 'Applications are currently unavailable. Please try again later.';
-        }
+        fs_insert('ownerapplications', [
+            'applicantName' => $fullName,
+            'acctEmail'     => $email,
+            'phone'         => $phone,
+            'hotelName'     => $hotelName,
+            'city'          => $hotelCity,
+            'address'       => $hotelAddr,
+            'roomCount'     => $roomCount,
+            'message'       => $message,
+            'status'        => 'pending',
+        ]);
+        $success = true;
     }
 }
 ?>
@@ -107,8 +107,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['apply'])) {
                 <div class="col-md-2">
                     <label class="form-label">M.I.</label>
                     <input type="text" name="middle_initial" class="form-control"
-                           placeholder="A."
-                           maxlength="3"
+                           placeholder="A." maxlength="3"
                            value="<?= htmlspecialchars($_POST['middle_initial'] ?? '') ?>">
                 </div>
                 <div class="col-md-6">

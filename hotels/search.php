@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 $title = "Find Hotels";
 require_once "../config/db.php";
 if (($_SESSION['role'] ?? '') === 'hotel_owner') {
@@ -9,55 +9,68 @@ if (($_SESSION['role'] ?? '') === 'admin') {
 }
 include "../layout/layout.php";
 
-$city     = trim($conn->real_escape_string($_GET['city']    ?? ''));
+$city     = trim($_GET['city']    ?? '');
 $checkin  = $_GET['checkin']  ?? '';
 $checkout = $_GET['checkout'] ?? '';
+$datesGiven = ($checkin && $checkout && $checkin < $checkout);
 
-$where = "WHERE h.Hotel_Status='active'";
+// Fetch all active hotels, then filter by city PHP-side
+$allHotels = fs_query('hotels', [['status', '=', 'active']], [['rating', 'DESC']]);
+
 if ($city) {
-    $where .= " AND (h.Hotel_City LIKE '%$city%' OR h.Hotel_Name LIKE '%$city%')";
+    $cityLower = strtolower($city);
+    $allHotels = array_filter($allHotels, function($h) use ($cityLower) {
+        return strpos(strtolower($h['city'] ?? ''), $cityLower) !== false
+            || strpos(strtolower($h['name'] ?? ''), $cityLower) !== false;
+    });
+    $allHotels = array_values($allHotels);
 }
 
-// Date availability filter: when both dates given, only include hotels
-// that have at least one room with no conflicting active booking
-$datesGiven = ($checkin && $checkout && $checkin < $checkout);
-$ciEsc = $datesGiven ? $conn->real_escape_string($checkin)  : '';
-$coEsc = $datesGiven ? $conn->real_escape_string($checkout) : '';
+// For each hotel, compute min price and available room count
+$hotels = [];
+foreach ($allHotels as $h) {
+    $hId = (int)$h['id'];
+    $availRooms = fs_query('rooms', [['hotelId', '=', $hId], ['status', '=', 'available']]);
 
-if ($datesGiven) {
-    // count available rooms per hotel = rooms with no overlapping non-cancelled booking
-    $hotels = $conn->query("
-        SELECT h.*,
-               MIN(r.Room_Price) AS MinPrice,
-               COUNT(DISTINCT r.Room_Id) AS RoomCount,
-               SUM(
-                   CASE WHEN NOT EXISTS (
-                       SELECT 1 FROM Bookings bk
-                       WHERE bk.Book_RoomId   = r.Room_Id
-                         AND bk.Book_Status  NOT IN ('cancelled')
-                         AND bk.Book_CheckIn  < '$coEsc'
-                         AND bk.Book_CheckOut > '$ciEsc'
-                   ) THEN 1 ELSE 0 END
-               ) AS AvailRooms
-        FROM Hotels h
-        LEFT JOIN Rooms r ON r.Room_HotelId = h.Hotel_Id AND r.Room_Status='available'
-        $where
-        GROUP BY h.Hotel_Id
-        HAVING AvailRooms > 0
-        ORDER BY h.Hotel_Rating DESC
-    ");
-} else {
-    $hotels = $conn->query("
-        SELECT h.*,
-               MIN(r.Room_Price) AS MinPrice,
-               COUNT(DISTINCT r.Room_Id) AS RoomCount,
-               COUNT(DISTINCT r.Room_Id) AS AvailRooms
-        FROM Hotels h
-        LEFT JOIN Rooms r ON r.Room_HotelId = h.Hotel_Id AND r.Room_Status='available'
-        $where
-        GROUP BY h.Hotel_Id
-        ORDER BY h.Hotel_Rating DESC
-    ");
+    $minPrice  = null;
+    $roomCount = count($availRooms);
+    $availCount = $roomCount;
+
+    if ($datesGiven) {
+        // For each room, check if it has any non-cancelled conflicting booking
+        $freeRooms = 0;
+        foreach ($availRooms as $r) {
+            $rId = (int)$r['id'];
+            $rBookings = fs_query('bookings', [['roomId', '=', $rId]]);
+            $hasConflict = false;
+            foreach ($rBookings as $bk) {
+                if (($bk['status'] ?? '') === 'cancelled') continue;
+                if ($bk['checkIn'] < $checkout && $bk['checkOut'] > $checkin) {
+                    $hasConflict = true;
+                    break;
+                }
+            }
+            if (!$hasConflict) {
+                $freeRooms++;
+                if ($minPrice === null || (float)$r['price'] < $minPrice) {
+                    $minPrice = (float)$r['price'];
+                }
+            }
+        }
+        $availCount = $freeRooms;
+        if ($availCount === 0) continue; // Skip hotels with no availability
+    } else {
+        foreach ($availRooms as $r) {
+            if ($minPrice === null || (float)$r['price'] < $minPrice) {
+                $minPrice = (float)$r['price'];
+            }
+        }
+    }
+
+    $h['MinPrice']   = $minPrice;
+    $h['RoomCount']  = $roomCount;
+    $h['AvailRooms'] = $availCount;
+    $hotels[] = $h;
 }
 ?>
 
@@ -105,7 +118,7 @@ if ($datesGiven) {
                 <h2 style="font-size:20px; font-weight:700; margin:0 0 4px;">All Available Hotels</h2>
             <?php endif; ?>
             <p style="font-size:14px; color:var(--rd-muted); margin:0;">
-                <?= $hotels->num_rows ?> propert<?= $hotels->num_rows != 1 ? 'ies' : 'y' ?>
+                <?= count($hotels) ?> propert<?= count($hotels) != 1 ? 'ies' : 'y' ?>
                 <?= $datesGiven ? 'available for <strong>' . date('M d', strtotime($checkin)) . ' &ndash; ' . date('M d, Y', strtotime($checkout)) . '</strong>' : 'listed' ?>
             </p>
         </div>
@@ -127,7 +140,7 @@ if ($datesGiven) {
         </div>
     </div>
 
-    <?php if ($hotels->num_rows === 0): ?>
+    <?php if (empty($hotels)): ?>
         <!-- Empty state -->
         <div style="
             text-align: center; padding: 80px 20px;
@@ -151,13 +164,10 @@ if ($datesGiven) {
 
     <?php else: ?>
         <div class="row g-4">
-        <?php
-        $idx = 0;
-        while ($h = $hotels->fetch_assoc()):
-            $stars   = round($h['Hotel_Rating']);
-            $imgSeed = 'reddoorz' . $h['Hotel_Id'];
+        <?php foreach ($hotels as $idx => $h):
+            $stars   = round($h['rating'] ?? 0);
+            $imgSeed = 'reddoorz' . $h['id'];
             $delay   = ($idx % 3) * 80;
-            $idx++;
         ?>
         <div class="col-md-6 col-lg-4" data-aos="fade-up" data-aos-delay="<?= $delay ?>">
             <div class="card-rd h-100">
@@ -165,7 +175,7 @@ if ($datesGiven) {
                 <!-- Hotel image -->
                 <div style="height:190px; position:relative; overflow:hidden;">
                     <img src="https://picsum.photos/seed/<?= $imgSeed ?>/640/400"
-                         alt="<?= htmlspecialchars($h['Hotel_Name']) ?>"
+                         alt="<?= htmlspecialchars($h['name']) ?>"
                          style="width:100%; height:100%; object-fit:cover; transition:transform 0.4s ease;"
                          onmouseover="this.style.transform='scale(1.05)'"
                          onmouseout="this.style.transform='scale(1)'">
@@ -177,7 +187,7 @@ if ($datesGiven) {
                         display:flex; align-items:center; gap:4px;
                     ">
                         <i class="bi bi-star-fill" style="font-size:9px;"></i>
-                        <?= number_format($h['Hotel_Rating'], 1) ?>
+                        <?= number_format($h['rating'] ?? 0, 1) ?>
                     </div>
                     <div style="
                         position:absolute; top:10px; right:10px;
@@ -185,17 +195,17 @@ if ($datesGiven) {
                         color:#fff; font-size:11px;
                         padding:3px 9px; border-radius:20px;
                     ">
-                        <?= htmlspecialchars($h['Hotel_City']) ?>
+                        <?= htmlspecialchars($h['city']) ?>
                     </div>
                 </div>
 
                 <div style="padding:16px 18px 20px;">
                     <h5 style="font-size:15px; font-weight:700; margin:0 0 5px; line-height:1.3;">
-                        <?= htmlspecialchars($h['Hotel_Name']) ?>
+                        <?= htmlspecialchars($h['name']) ?>
                     </h5>
                     <p style="font-size:12px; color:var(--rd-muted); margin:0 0 12px; display:flex; align-items:center; gap:4px;">
                         <i class="bi bi-geo-alt-fill" style="font-size:11px; color:var(--rd-red);"></i>
-                        <?= htmlspecialchars($h['Hotel_Address'] ?? $h['Hotel_City']) ?>
+                        <?= htmlspecialchars($h['address'] ?? $h['city']) ?>
                     </p>
 
                     <div class="d-flex justify-content-between align-items-center mb-3">
@@ -206,10 +216,10 @@ if ($datesGiven) {
                                 <?php endfor; ?>
                             </span>
                             <span style="font-size:11px; color:#bbb; margin-left:3px;">
-                        (<?= $datesGiven ? $h['AvailRooms'] . ' avail.' : $h['RoomCount'] . ' rooms' ?>)
-                    </span>
+                                (<?= $datesGiven ? $h['AvailRooms'] . ' avail.' : $h['RoomCount'] . ' rooms' ?>)
+                            </span>
                         </div>
-                        <?php if ($h['MinPrice']): ?>
+                        <?php if ($h['MinPrice'] !== null): ?>
                         <div class="text-end">
                             <div class="price-tag" style="font-size:18px;">&#8369;<?= number_format($h['MinPrice']) ?></div>
                             <div style="font-size:11px; color:#bbb;">per night</div>
@@ -231,7 +241,7 @@ if ($datesGiven) {
                         <?php endforeach; ?>
                     </div>
 
-                    <a href="/hotels/hotel_detail.php?id=<?= $h['Hotel_Id'] ?><?= $checkin ? '&checkin='.urlencode($checkin) : '' ?><?= $checkout ? '&checkout='.urlencode($checkout) : '' ?>"
+                    <a href="/hotels/hotel_detail.php?id=<?= $h['id'] ?><?= $checkin ? '&checkin='.urlencode($checkin) : '' ?><?= $checkout ? '&checkout='.urlencode($checkout) : '' ?>"
                        class="btn-rd d-block text-center"
                        style="border-radius:8px; padding:9px; justify-content:center;">
                         View Rooms
@@ -240,7 +250,7 @@ if ($datesGiven) {
 
             </div>
         </div>
-        <?php endwhile; ?>
+        <?php endforeach; ?>
         </div>
     <?php endif; ?>
 

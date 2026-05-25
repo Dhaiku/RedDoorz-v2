@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 session_start();
 require_once "../config/db.php";
 require_once "../config/notify.php";
@@ -12,32 +12,38 @@ $custId    = (int) $_SESSION['customer_id'];
 
 if (!$bookingId) { header("Location: /customer/dashboard.php"); exit(); }
 
-// Fetch booking — must belong to this customer and still be pending
-$booking = $conn->query("
-    SELECT b.*, h.Hotel_Name, h.Hotel_City, h.Hotel_Address,
-           r.Room_Type, r.Room_Price, r.Room_Capacity
-    FROM Bookings b
-    JOIN Hotels h ON h.Hotel_Id = b.Book_HotelId
-    JOIN Rooms  r ON r.Room_Id  = b.Book_RoomId
-    WHERE b.Book_Id = $bookingId
-      AND b.Book_CustId = $custId
-    LIMIT 1
-")->fetch_assoc();
-
-if (!$booking) { header("Location: /customer/dashboard.php"); exit(); }
+// Fetch booking — must belong to this customer
+$bookingBase = fs_find('bookings', [['id', '=', $bookingId], ['custId', '=', $custId]]);
+if (!$bookingBase) { header("Location: /customer/dashboard.php"); exit(); }
 
 // Already paid — redirect straight to detail
-if ($booking['Book_Status'] === 'confirmed' || $booking['Book_Status'] === 'completed') {
+if (in_array($bookingBase['status'] ?? '', ['confirmed', 'completed'])) {
     header("Location: /customer/booking_detail.php?id=$bookingId"); exit();
 }
-
 // Cancelled booking — nothing to pay
-if ($booking['Book_Status'] === 'cancelled') {
+if (($bookingBase['status'] ?? '') === 'cancelled') {
     header("Location: /customer/dashboard.php"); exit();
 }
 
+// Enrich with hotel and room
+$hotel = fs_get('hotels', (int)($bookingBase['hotelId'] ?? 0));
+$room  = fs_get('rooms',  (int)($bookingBase['roomId']  ?? 0));
+
+$booking = array_merge($bookingBase, [
+    'Hotel_Name'    => $hotel['name']     ?? '',
+    'Hotel_City'    => $hotel['city']     ?? '',
+    'Hotel_Address' => $hotel['address']  ?? '',
+    'Room_Type'     => $room['type']      ?? '',
+    'Room_Price'    => $room['price']     ?? 0,
+    'Room_Capacity' => $room['capacity']  ?? 1,
+    'Book_HotelId'  => $bookingBase['hotelId'] ?? 0,
+    'Book_CheckIn'  => $bookingBase['checkIn']  ?? '',
+    'Book_CheckOut' => $bookingBase['checkOut'] ?? '',
+    'Book_Guests'   => $bookingBase['guests']   ?? 1,
+]);
+
 $nights = max(1, (new DateTime($booking['Book_CheckIn']))->diff(new DateTime($booking['Book_CheckOut']))->days);
-$total  = $booking['Book_TotalPrice'];
+$total  = (float)$booking['totalPrice'];
 
 $error   = "";
 $success = false;
@@ -46,14 +52,14 @@ $success = false;
 // PROCESS PAYMENT SUBMISSION
 // =====================================================
 if (isset($_POST['pay'])) {
-    $method = $conn->real_escape_string($_POST['method'] ?? '');
+    $method = $_POST['method'] ?? '';
     $valid  = in_array($method, ['gcash', 'maya', 'credit_card', 'pay_at_hotel']);
 
     if (!$valid) {
         $error = "Please select a valid payment method.";
 
     } else {
-        $refCode    = "";
+        $refCode     = "";
         $paymtStatus = "paid";
 
         // Validate method-specific fields
@@ -64,9 +70,7 @@ if (isset($_POST['pay'])) {
                 $label = $method === 'gcash' ? 'GCash' : 'Maya';
                 $error = "Please enter a valid 11-digit $label mobile number.";
             } else {
-                // Store in xxxx-xxx-xxxx format
-                $formatted = substr($phone,0,4).'-'.substr($phone,4,3).'-'.substr($phone,7,4);
-                $refCode = $conn->real_escape_string($formatted);
+                $refCode = substr($phone,0,4).'-'.substr($phone,4,3).'-'.substr($phone,7,4);
             }
 
         } elseif ($method === 'credit_card') {
@@ -76,9 +80,8 @@ if (isset($_POST['pay'])) {
             if (strlen($cardNum) < 13 || empty($expiry) || !preg_match('/^\d{3}$/', $cvv)) {
                 $error = "Please fill in all card details correctly.";
             } else {
-                // Simulated — store only last 4 digits
                 $last4   = substr($cardNum, -4);
-                $refCode = $conn->real_escape_string("CARD-****$last4");
+                $refCode = "CARD-****$last4";
             }
 
         } elseif ($method === 'pay_at_hotel') {
@@ -87,54 +90,51 @@ if (isset($_POST['pay'])) {
         }
 
         if (!$error) {
-            // Check if Payments table exists (migration may not have run)
-            $hasPaymtTable = $conn->query("SHOW TABLES LIKE 'Payments'")->num_rows > 0;
+            // Insert payment record
+            fs_insert('payments', [
+                'bookId'  => $bookingId,
+                'amount'  => $total,
+                'method'  => $method,
+                'status'  => $paymtStatus,
+                'refCode' => $refCode ?: null,
+                'date'    => date('Y-m-d H:i:s'),
+            ]);
 
-            if ($hasPaymtTable) {
-                $conn->query("
-                    INSERT INTO Payments
-                        (Paymt_BookId, Paymt_Amount, Paymt_Method, Paymt_Status, Paymt_RefCode)
-                    VALUES
-                        ($bookingId, $total, '$method', '$paymtStatus',
-                         " . ($refCode ? "'$refCode'" : "NULL") . ")
-                ");
-            }
+            $acctId  = (int) $_SESSION['account_id'];
+            $bookRef = 'RD-' . str_pad($bookingId, 4, '0', STR_PAD_LEFT);
 
             if ($method === 'pay_at_hotel') {
-                // Walk-in: keep booking as pending — customer has not paid yet.
-                // Hotel owner will confirm once payment is collected at the front desk.
-                $conn->query("UPDATE Bookings SET Book_Status='pending' WHERE Book_Id=$bookingId");
-                // No Earnings record yet — created when owner confirms payment.
+                // Keep booking as pending — hotel owner confirms on arrival
+                fs_update('bookings', $bookingId, ['status' => 'pending']);
 
-                // Notify customer: walk-in reservation received
-                $acctId = (int) $_SESSION['account_id'];
-                $bookRef = 'RD-' . str_pad($bookingId, 4, '0', STR_PAD_LEFT);
-                sendPushNotification($conn, $acctId, 'Reservation Received', "Your walk-in reservation {$bookRef} for {$booking['Hotel_Name']} is pending. Pay at the hotel to confirm.", ['booking_id' => (string)$bookingId]);
-                syncBookingToFirestore($conn, $bookingId);
+                sendPushNotification(null, $acctId, 'Reservation Received',
+                    "Your walk-in reservation {$bookRef} for {$booking['Hotel_Name']} is pending. Pay at the hotel to confirm.",
+                    ['booking_id' => (string)$bookingId]);
+                syncBookingToFirestore(null, $bookingId);
+
             } else {
-                // Online payment: confirm immediately and record earnings.
-                $conn->query("UPDATE Bookings SET Book_Status='confirmed' WHERE Book_Id=$bookingId");
+                // Online payment: confirm immediately and record earnings
+                fs_update('bookings', $bookingId, ['status' => 'confirmed']);
 
-                $hasEarningsTable = $conn->query("SHOW TABLES LIKE 'Earnings'")->num_rows > 0;
-                if ($hasEarningsTable) {
-                    $ownerShare  = round($total * 0.85, 2);
-                    $platformFee = round($total * 0.15, 2);
-                    $bInfo = $conn->query("SELECT b.Book_HotelId, h.Hotel_OwnerId FROM Bookings b JOIN Hotels h ON h.Hotel_Id=b.Book_HotelId WHERE b.Book_Id=$bookingId LIMIT 1")->fetch_assoc();
-                    $earnHotelId = (int)($bInfo['Book_HotelId'] ?? 0);
-                    $earnOwnerId = $bInfo['Hotel_OwnerId'] ? (int)$bInfo['Hotel_OwnerId'] : 'NULL';
-                    $conn->query("
-                        INSERT INTO Earnings
-                            (Earn_BookId, Earn_HotelId, Earn_OwnerId, Earn_TotalAmount, Earn_OwnerShare, Earn_PlatformFee, Earn_Status)
-                        VALUES
-                            ($bookingId, $earnHotelId, $earnOwnerId, $total, $ownerShare, $platformFee, 'pending')
-                    ");
-                }
+                $earnHotelId = (int)($bookingBase['hotelId'] ?? 0);
+                $earnOwnerId = (int)($hotel['ownerId'] ?? 0);
+                $ownerShare  = round($total * 0.85, 2);
+                $platformFee = round($total * 0.15, 2);
 
-                // Notify customer: booking confirmed
-                $acctId = (int) $_SESSION['account_id'];
-                $bookRef = 'RD-' . str_pad($bookingId, 4, '0', STR_PAD_LEFT);
-                sendPushNotification($conn, $acctId, 'Booking Confirmed! 🎉', "Your booking {$bookRef} at {$booking['Hotel_Name']} is confirmed. See you on {$booking['Book_CheckIn']}!", ['booking_id' => (string)$bookingId]);
-                syncBookingToFirestore($conn, $bookingId);
+                fs_insert('earnings', [
+                    'bookId'      => $bookingId,
+                    'hotelId'     => $earnHotelId,
+                    'ownerId'     => $earnOwnerId,
+                    'totalAmount' => $total,
+                    'ownerShare'  => $ownerShare,
+                    'platformFee' => $platformFee,
+                    'status'      => 'pending',
+                ]);
+
+                sendPushNotification(null, $acctId, 'Booking Confirmed! 🎉',
+                    "Your booking {$bookRef} at {$booking['Hotel_Name']} is confirmed. See you on {$booking['Book_CheckIn']}!",
+                    ['booking_id' => (string)$bookingId]);
+                syncBookingToFirestore(null, $bookingId);
             }
 
             header("Location: /customer/booking_detail.php?id=$bookingId&paid=1");
@@ -143,18 +143,14 @@ if (isset($_POST['pay'])) {
     }
 }
 
-$title = "Payment — " . $booking['Hotel_Name'];
+$title   = "Payment — " . $booking['Hotel_Name'];
 include "../layout/layout.php";
 
-// Ref code display
-$refCode = $booking['Book_RefCode'] ?? ('RD-' . strtoupper(substr(md5($bookingId . 'rd'), 0, 8)));
+$refCode = $booking['refCode'] ?? ('RD-' . strtoupper(substr(md5($bookingId . 'rd'), 0, 8)));
 $imgSeed = 'reddoorz' . $booking['Book_HotelId'];
 ?>
 
 <style>
-/* =============================================
-   PAYMENT METHOD CARDS
-============================================= */
 .method-card {
     border: 2px solid var(--rd-border);
     border-radius: 12px;
@@ -167,72 +163,19 @@ $imgSeed = 'reddoorz' . $booking['Book_HotelId'];
     background: #fff;
     user-select: none;
 }
-
-.method-card:hover {
-    border-color: var(--rd-red);
-    background: var(--rd-red-pale);
-}
-
-.method-card.selected {
-    border-color: var(--rd-red);
-    background: var(--rd-red-pale);
-    box-shadow: 0 0 0 3px rgba(184,0,32,0.08);
-}
-
+.method-card:hover { border-color: var(--rd-red); background: var(--rd-red-pale); }
+.method-card.selected { border-color: var(--rd-red); background: var(--rd-red-pale); box-shadow: 0 0 0 3px rgba(184,0,32,0.08); }
 .method-card input[type="radio"] { display: none; }
-
-.method-icon {
-    width: 44px; height: 44px; flex-shrink: 0;
-    border-radius: 10px;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 20px;
-}
-
-.method-details-panel {
-    display: none;
-    margin-top: 14px;
-    padding: 16px;
-    background: var(--rd-bg);
-    border-radius: 10px;
-    border: 1px solid var(--rd-border);
-}
-
+.method-icon { width: 44px; height: 44px; flex-shrink: 0; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 20px; }
+.method-details-panel { display: none; margin-top: 14px; padding: 16px; background: var(--rd-bg); border-radius: 10px; border: 1px solid var(--rd-border); }
 .method-details-panel.visible { display: block; }
-
-/* Step indicator */
-.step-bar {
-    display: flex;
-    align-items: center;
-    gap: 0;
-    margin-bottom: 32px;
-}
-
-.step-item {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--rd-muted);
-}
-
+.step-bar { display: flex; align-items: center; gap: 0; margin-bottom: 32px; }
+.step-item { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; color: var(--rd-muted); }
 .step-item.done  .step-num { background: #16A34A; color: #fff; }
 .step-item.active .step-num { background: var(--rd-red); color: #fff; }
 .step-item.active { color: var(--rd-red); font-weight: 700; }
-
-.step-num {
-    width: 26px; height: 26px;
-    border-radius: 50%;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 12px; font-weight: 700;
-    background: #DDD; color: #888;
-    flex-shrink: 0;
-}
-
-.step-line {
-    flex: 1; height: 1px; background: var(--rd-border);
-    margin: 0 10px;
-}
+.step-num { width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; background: #DDD; color: #888; flex-shrink: 0; }
+.step-line { flex: 1; height: 1px; background: var(--rd-border); margin: 0 10px; }
 </style>
 
 <div class="container" style="padding:36px 12px 80px; max-width:960px;">
@@ -273,7 +216,6 @@ $imgSeed = 'reddoorz' . $booking['Book_HotelId'];
 
         <!-- ===== LEFT: Payment Form ===== -->
         <div class="col-lg-7">
-
             <div style="background:#fff; border-radius:14px; padding:28px; box-shadow:var(--rd-shadow); border:1px solid rgba(228,223,223,0.5);">
 
                 <h4 style="font-size:18px; font-weight:700; margin-bottom:4px;">Choose Payment Method</h4>
@@ -292,29 +234,21 @@ $imgSeed = 'reddoorz' . $booking['Book_HotelId'];
                     <!-- GCash -->
                     <label class="method-card mb-3 <?= ($_POST['method'] ?? '') === 'gcash' ? 'selected' : '' ?>"
                            id="card-gcash" onclick="selectMethod('gcash')">
-                        <input type="radio" name="method" value="gcash"
-                               <?= ($_POST['method'] ?? '') === 'gcash' ? 'checked' : '' ?>>
-                        <div class="method-icon" style="background:#E8F5E9; color:#2E7D32;">
-                            <i class="bi bi-phone-fill"></i>
-                        </div>
+                        <input type="radio" name="method" value="gcash" <?= ($_POST['method'] ?? '') === 'gcash' ? 'checked' : '' ?>>
+                        <div class="method-icon" style="background:#E8F5E9; color:#2E7D32;"><i class="bi bi-phone-fill"></i></div>
                         <div style="flex:1;">
                             <div style="font-size:14px; font-weight:700; color:#1A1A1A;">GCash</div>
                             <div style="font-size:12px; color:var(--rd-muted);">Pay via GCash e-wallet</div>
                         </div>
-                        <div id="check-gcash" style="display:none; color:var(--rd-red);">
-                            <i class="bi bi-check-circle-fill"></i>
-                        </div>
+                        <div id="check-gcash" style="display:none; color:var(--rd-red);"><i class="bi bi-check-circle-fill"></i></div>
                     </label>
-
                     <div class="method-details-panel <?= ($_POST['method'] ?? '') === 'gcash' ? 'visible' : '' ?>" id="panel-gcash">
                         <p style="font-size:13px; color:#555; margin-bottom:12px; line-height:1.55;">
-                            Enter your <strong>GCash-registered mobile number</strong> to confirm payment of
-                            <strong>&#8369;<?= number_format($total) ?></strong>.
+                            Enter your <strong>GCash-registered mobile number</strong> to confirm payment of <strong>&#8369;<?= number_format($total) ?></strong>.
                         </p>
                         <label class="form-label">GCash Mobile Number <span style="color:var(--rd-red)">*</span></label>
                         <input type="tel" name="gcash_number" id="gcash_number" class="form-control"
-                               placeholder="0917-xxx-xxxx" maxlength="13"
-                               oninput="formatPhone(this)"
+                               placeholder="0917-xxx-xxxx" maxlength="13" oninput="formatPhone(this)"
                                value="<?= htmlspecialchars($_POST['gcash_number'] ?? '') ?>">
                         <div style="font-size:11px; color:#aaa; margin-top:5px;">Format: xxxx-xxx-xxxx (e.g. 0917-123-4567)</div>
                     </div>
@@ -322,29 +256,21 @@ $imgSeed = 'reddoorz' . $booking['Book_HotelId'];
                     <!-- Maya -->
                     <label class="method-card mb-3 <?= ($_POST['method'] ?? '') === 'maya' ? 'selected' : '' ?>"
                            id="card-maya" onclick="selectMethod('maya')">
-                        <input type="radio" name="method" value="maya"
-                               <?= ($_POST['method'] ?? '') === 'maya' ? 'checked' : '' ?>>
-                        <div class="method-icon" style="background:#E8EAF6; color:#3949AB;">
-                            <i class="bi bi-wallet2"></i>
-                        </div>
+                        <input type="radio" name="method" value="maya" <?= ($_POST['method'] ?? '') === 'maya' ? 'checked' : '' ?>>
+                        <div class="method-icon" style="background:#E8EAF6; color:#3949AB;"><i class="bi bi-wallet2"></i></div>
                         <div style="flex:1;">
                             <div style="font-size:14px; font-weight:700; color:#1A1A1A;">Maya</div>
                             <div style="font-size:12px; color:var(--rd-muted);">Pay via Maya (PayMaya)</div>
                         </div>
-                        <div id="check-maya" style="display:none; color:var(--rd-red);">
-                            <i class="bi bi-check-circle-fill"></i>
-                        </div>
+                        <div id="check-maya" style="display:none; color:var(--rd-red);"><i class="bi bi-check-circle-fill"></i></div>
                     </label>
-
                     <div class="method-details-panel <?= ($_POST['method'] ?? '') === 'maya' ? 'visible' : '' ?>" id="panel-maya">
                         <p style="font-size:13px; color:#555; margin-bottom:12px; line-height:1.55;">
-                            Enter your <strong>Maya-registered mobile number</strong> to confirm payment of
-                            <strong>&#8369;<?= number_format($total) ?></strong>.
+                            Enter your <strong>Maya-registered mobile number</strong> to confirm payment of <strong>&#8369;<?= number_format($total) ?></strong>.
                         </p>
                         <label class="form-label">Maya Mobile Number <span style="color:var(--rd-red)">*</span></label>
                         <input type="tel" name="maya_number" id="maya_number" class="form-control"
-                               placeholder="0998-xxx-xxxx" maxlength="13"
-                               oninput="formatPhone(this)"
+                               placeholder="0998-xxx-xxxx" maxlength="13" oninput="formatPhone(this)"
                                value="<?= htmlspecialchars($_POST['maya_number'] ?? '') ?>">
                         <div style="font-size:11px; color:#aaa; margin-top:5px;">Format: xxxx-xxx-xxxx (e.g. 0998-123-4567)</div>
                     </div>
@@ -352,34 +278,26 @@ $imgSeed = 'reddoorz' . $booking['Book_HotelId'];
                     <!-- Credit / Debit Card -->
                     <label class="method-card mb-3 <?= ($_POST['method'] ?? '') === 'credit_card' ? 'selected' : '' ?>"
                            id="card-credit_card" onclick="selectMethod('credit_card')">
-                        <input type="radio" name="method" value="credit_card"
-                               <?= ($_POST['method'] ?? '') === 'credit_card' ? 'checked' : '' ?>>
-                        <div class="method-icon" style="background:#FFF3E0; color:#E65100;">
-                            <i class="bi bi-credit-card-fill"></i>
-                        </div>
+                        <input type="radio" name="method" value="credit_card" <?= ($_POST['method'] ?? '') === 'credit_card' ? 'checked' : '' ?>>
+                        <div class="method-icon" style="background:#FFF3E0; color:#E65100;"><i class="bi bi-credit-card-fill"></i></div>
                         <div style="flex:1;">
                             <div style="font-size:14px; font-weight:700; color:#1A1A1A;">Credit / Debit Card</div>
                             <div style="font-size:12px; color:var(--rd-muted);">Visa, Mastercard, JCB</div>
                         </div>
-                        <div id="check-credit_card" style="display:none; color:var(--rd-red);">
-                            <i class="bi bi-check-circle-fill"></i>
-                        </div>
+                        <div id="check-credit_card" style="display:none; color:var(--rd-red);"><i class="bi bi-check-circle-fill"></i></div>
                     </label>
-
                     <div class="method-details-panel <?= ($_POST['method'] ?? '') === 'credit_card' ? 'visible' : '' ?>" id="panel-credit_card">
                         <div class="mb-3">
                             <label class="form-label">Card Number</label>
                             <input type="text" name="card_number" class="form-control"
-                                   placeholder="1234 5678 9012 3456" maxlength="19"
-                                   oninput="formatCard(this)"
+                                   placeholder="1234 5678 9012 3456" maxlength="19" oninput="formatCard(this)"
                                    value="<?= htmlspecialchars($_POST['card_number'] ?? '') ?>">
                         </div>
                         <div class="row g-3">
                             <div class="col-6">
                                 <label class="form-label">Expiry Date</label>
                                 <input type="text" name="card_expiry" class="form-control"
-                                       placeholder="MM / YY" maxlength="7"
-                                       oninput="formatExpiry(this)"
+                                       placeholder="MM / YY" maxlength="7" oninput="formatExpiry(this)"
                                        value="<?= htmlspecialchars($_POST['card_expiry'] ?? '') ?>">
                             </div>
                             <div class="col-6">
@@ -398,20 +316,14 @@ $imgSeed = 'reddoorz' . $booking['Book_HotelId'];
                     <!-- Pay at Hotel -->
                     <label class="method-card mb-3 <?= ($_POST['method'] ?? '') === 'pay_at_hotel' ? 'selected' : '' ?>"
                            id="card-pay_at_hotel" onclick="selectMethod('pay_at_hotel')">
-                        <input type="radio" name="method" value="pay_at_hotel"
-                               <?= ($_POST['method'] ?? '') === 'pay_at_hotel' ? 'checked' : '' ?>>
-                        <div class="method-icon" style="background:var(--rd-red-pale); color:var(--rd-red);">
-                            <i class="bi bi-building-fill"></i>
-                        </div>
+                        <input type="radio" name="method" value="pay_at_hotel" <?= ($_POST['method'] ?? '') === 'pay_at_hotel' ? 'checked' : '' ?>>
+                        <div class="method-icon" style="background:var(--rd-red-pale); color:var(--rd-red);"><i class="bi bi-building-fill"></i></div>
                         <div style="flex:1;">
                             <div style="font-size:14px; font-weight:700; color:#1A1A1A;">Pay at Hotel</div>
                             <div style="font-size:12px; color:var(--rd-muted);">Pay cash on arrival at check-in</div>
                         </div>
-                        <div id="check-pay_at_hotel" style="display:none; color:var(--rd-red);">
-                            <i class="bi bi-check-circle-fill"></i>
-                        </div>
+                        <div id="check-pay_at_hotel" style="display:none; color:var(--rd-red);"><i class="bi bi-check-circle-fill"></i></div>
                     </label>
-
                     <div class="method-details-panel <?= ($_POST['method'] ?? '') === 'pay_at_hotel' ? 'visible' : '' ?>" id="panel-pay_at_hotel">
                         <div style="display:flex; align-items:flex-start; gap:10px; font-size:13px; color:#555; line-height:1.6;">
                             <i class="bi bi-info-circle" style="color:var(--rd-red); font-size:16px; margin-top:1px;"></i>
@@ -437,7 +349,6 @@ $imgSeed = 'reddoorz' . $booking['Book_HotelId'];
 
                 </form>
             </div>
-
         </div>
 
         <!-- ===== RIGHT: Booking Summary ===== -->
@@ -457,7 +368,6 @@ $imgSeed = 'reddoorz' . $booking['Book_HotelId'];
 
                 <!-- Summary details -->
                 <div style="padding:18px 20px;">
-
                     <div style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.7px; color:var(--rd-muted); margin-bottom:12px;">
                         Booking Summary
                     </div>
@@ -479,12 +389,10 @@ $imgSeed = 'reddoorz' . $booking['Book_HotelId'];
                     </div>
                     <?php endforeach; ?>
 
-                    <!-- Total -->
                     <div style="display:flex; justify-content:space-between; align-items:center; padding:14px 0 4px;">
                         <span style="font-size:15px; font-weight:700; color:#111;">Amount Due</span>
                         <span class="price-tag" style="font-size:20px;">&#8369;<?= number_format($total) ?></span>
                     </div>
-
                 </div>
 
                 <!-- Security note -->
@@ -509,7 +417,6 @@ function selectMethod(selected) {
         const panel = document.getElementById('panel-' + m);
         const check = document.getElementById('check-' + m);
         const radio = card.querySelector('input[type="radio"]');
-
         if (m === selected) {
             card.classList.add('selected');
             panel.classList.add('visible');
@@ -522,8 +429,6 @@ function selectMethod(selected) {
             radio.checked = false;
         }
     });
-
-    // Update submit button label for walk-in vs online payment
     const btn = document.getElementById('submitBtn');
     if (selected === 'pay_at_hotel') {
         btn.innerHTML = '<i class="bi bi-building me-1"></i> Reserve Room &mdash; Pay at Hotel';
@@ -532,13 +437,11 @@ function selectMethod(selected) {
     }
 }
 
-// Restore selection on page reload (after POST error)
 (function() {
     const checked = document.querySelector('input[name="method"]:checked');
     if (checked) selectMethod(checked.value);
 })();
 
-// Phone number formatting: xxxx-xxx-xxxx
 function formatPhone(input) {
     let v = input.value.replace(/\D/g, '').substring(0, 11);
     if (v.length > 7)      v = v.substring(0,4) + '-' + v.substring(4,7) + '-' + v.substring(7);
@@ -546,13 +449,11 @@ function formatPhone(input) {
     input.value = v;
 }
 
-// Card number formatting
 function formatCard(input) {
     let v = input.value.replace(/\D/g, '').substring(0, 16);
     input.value = v.replace(/(.{4})/g, '$1 ').trim();
 }
 
-// Expiry formatting
 function formatExpiry(input) {
     let v = input.value.replace(/\D/g, '').substring(0, 4);
     if (v.length >= 3) v = v.substring(0, 2) + ' / ' + v.substring(2);

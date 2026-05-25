@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS Accounts (
     Acct_Id              INT AUTO_INCREMENT PRIMARY KEY,
     Acct_Email           VARCHAR(100) UNIQUE NOT NULL,
     Acct_Password        VARCHAR(255) NOT NULL,
-    Acct_Role            ENUM('customer','hotel_owner','admin') DEFAULT 'customer',
+    Acct_Role            ENUM('customer','admin') DEFAULT 'customer',
     Acct_Status          ENUM('active','inactive') DEFAULT 'active',
     Acct_MustChangePassword TINYINT(1) DEFAULT 0,
     Acct_CreatedAt       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS Bookings (
     Book_Guests     INT DEFAULT 1,
     Book_TotalPrice DECIMAL(10,2) NOT NULL,
     Book_RefCode    VARCHAR(20) UNIQUE DEFAULT NULL,
-    Book_Status     ENUM('pending','confirmed','checked_in','cancelled','completed') DEFAULT 'pending',
+    Book_Status     ENUM('pending','confirmed','cancelled','completed') DEFAULT 'pending',
     Book_CreatedAt  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (Book_CustId)  REFERENCES Customers(Cust_Id),
     FOREIGN KEY (Book_HotelId) REFERENCES Hotels(Hotel_Id),

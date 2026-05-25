@@ -9,9 +9,6 @@ if (!isset($_SESSION['account_id']) || $_SESSION['role'] !== 'hotel_owner') {
 $hotelId = (int) ($_SESSION['hotel_id'] ?? 0);
 if (!$hotelId) { header("Location: /auth/logout.php"); exit(); }
 
-// Check if Hotel_Amenities column exists
-$hasAmenities = $conn->query("SHOW COLUMNS FROM Hotels LIKE 'Hotel_Amenities'")->num_rows > 0;
-
 $allAmenities = [
     'free_wifi'       => ['bi-wifi',             'Free WiFi'],
     'air_conditioning'=> ['bi-thermometer-half', 'Air Conditioning'],
@@ -31,35 +28,38 @@ $msg = ''; $error = '';
 
 // Handle hotel profile update
 if (isset($_POST['save_profile'])) {
-    $name  = $conn->real_escape_string(trim($_POST['hotel_name']        ?? ''));
-    $city  = $conn->real_escape_string(trim($_POST['hotel_city']        ?? ''));
-    $addr  = $conn->real_escape_string(trim($_POST['hotel_address']     ?? ''));
-    $desc  = $conn->real_escape_string(trim($_POST['hotel_description'] ?? ''));
+    $name = trim($_POST['hotel_name']        ?? '');
+    $city = trim($_POST['hotel_city']        ?? '');
+    $addr = trim($_POST['hotel_address']     ?? '');
+    $desc = trim($_POST['hotel_description'] ?? '');
 
     if ($name === '' || $city === '') {
         $error = 'Hotel name and city are required.';
     } else {
-        if ($hasAmenities) {
-            $selectedAmenities = $_POST['amenities'] ?? [];
-            $validKeys = array_keys($allAmenities);
-            $selectedAmenities = array_filter($selectedAmenities, fn($k) => in_array($k, $validKeys));
-            $amenitiesStr = $conn->real_escape_string(implode(',', array_keys($selectedAmenities)));
-            $conn->query("UPDATE Hotels SET Hotel_Name='$name', Hotel_City='$city', Hotel_Address='$addr', Hotel_Description='$desc', Hotel_Amenities='$amenitiesStr' WHERE Hotel_Id=$hotelId AND Hotel_OwnerId={$_SESSION['account_id']}");
-        } else {
-            $conn->query("UPDATE Hotels SET Hotel_Name='$name', Hotel_City='$city', Hotel_Address='$addr', Hotel_Description='$desc' WHERE Hotel_Id=$hotelId AND Hotel_OwnerId={$_SESSION['account_id']}");
-        }
+        $selectedAmenities = $_POST['amenities'] ?? [];
+        $validKeys = array_keys($allAmenities);
+        $selectedAmenities = array_filter($selectedAmenities, fn($k) => in_array($k, $validKeys));
+        $amenitiesStr = implode(',', array_keys($selectedAmenities));
+
+        fs_update('hotels', $hotelId, [
+            'name'        => $name,
+            'city'        => $city,
+            'address'     => $addr,
+            'description' => $desc,
+            'amenities'   => $amenitiesStr,
+        ]);
         $msg = 'Hotel profile updated successfully.';
         header("Location: hotel_profile.php?msg=" . urlencode($msg)); exit();
     }
 }
 
 // Fetch current hotel data
-$hotel = $conn->query("SELECT * FROM Hotels WHERE Hotel_Id=$hotelId LIMIT 1")->fetch_assoc();
+$hotel = fs_get('hotels', $hotelId);
 if (!$hotel) { header("Location: /auth/logout.php"); exit(); }
 
 $savedAmenities = [];
-if ($hasAmenities && !empty($hotel['Hotel_Amenities'])) {
-    $savedAmenities = explode(',', $hotel['Hotel_Amenities']);
+if (!empty($hotel['amenities'])) {
+    $savedAmenities = explode(',', $hotel['amenities']);
 }
 
 $title = "Hotel Profile";
@@ -98,18 +98,18 @@ include "../layout/layout.php";
                     <div class="col-md-8">
                         <label class="form-label">Hotel Name <span style="color:var(--rd-red)">*</span></label>
                         <input type="text" name="hotel_name" class="form-control"
-                               value="<?= htmlspecialchars($hotel['Hotel_Name']) ?>" required>
+                               value="<?= htmlspecialchars($hotel['name']) ?>" required>
                     </div>
                     <div class="col-md-4">
                         <label class="form-label">City <span style="color:var(--rd-red)">*</span></label>
                         <input type="text" name="hotel_city" class="form-control"
-                               value="<?= htmlspecialchars($hotel['Hotel_City']) ?>" required>
+                               value="<?= htmlspecialchars($hotel['city']) ?>" required>
                     </div>
                     <div class="col-12">
                         <label class="form-label">Full Address</label>
                         <input type="text" name="hotel_address" class="form-control"
                                placeholder="e.g. Station 1, White Beach, Boracay Island"
-                               value="<?= htmlspecialchars($hotel['Hotel_Address'] ?? '') ?>">
+                               value="<?= htmlspecialchars($hotel['address'] ?? '') ?>">
                     </div>
                     <div class="col-12">
                         <label class="form-label">Hotel Description</label>
@@ -117,7 +117,7 @@ include "../layout/layout.php";
                                   placeholder="Describe your hotel — location highlights, unique features, atmosphere..."></textarea>
                         <script>
                         // Pre-fill textarea (avoids HTML escaping issues with value attr)
-                        document.currentScript.previousElementSibling.value = <?= json_encode($hotel['Hotel_Description'] ?? '') ?>;
+                        document.currentScript.previousElementSibling.value = <?= json_encode($hotel['description'] ?? '') ?>;
                         </script>
                         <div style="font-size:12px; color:var(--rd-muted); margin-top:5px;">
                             This appears in the "About This Hotel" section on your listing.
@@ -134,14 +134,6 @@ include "../layout/layout.php";
                 <p style="font-size:13px; color:var(--rd-muted); margin-bottom:20px;">
                     Select all amenities available at your hotel. These are shown on your public listing.
                 </p>
-
-                <?php if (!$hasAmenities): ?>
-                <div style="background:#FFF8E1; border:1px solid #FFE082; border-radius:8px; padding:14px; color:#7B5800; font-size:13px;">
-                    <i class="bi bi-exclamation-triangle me-2"></i>
-                    Run <code>config/migration_amenities.sql</code> to enable amenity selection.
-                    Amenities will show as the default set until then.
-                </div>
-                <?php else: ?>
                 <div class="row g-3">
                     <?php foreach ($allAmenities as $key => [$icon, $label]):
                         $checked = in_array($key, $savedAmenities);
@@ -165,7 +157,6 @@ include "../layout/layout.php";
                     </div>
                     <?php endforeach; ?>
                 </div>
-                <?php endif; ?>
             </div>
 
             <!-- Save button -->

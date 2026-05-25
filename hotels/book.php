@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 session_start();
 require_once "../config/db.php";
 
@@ -13,15 +13,23 @@ $checkout = $_GET['checkout'] ?? $_POST['checkout'] ?? '';
 
 if (!$roomId || !$hotelId) { header("Location: search.php"); exit(); }
 
-$room = $conn->query("
-    SELECT r.*, h.Hotel_Name, h.Hotel_City, h.Hotel_Address
-    FROM Rooms r
-    JOIN Hotels h ON h.Hotel_Id = r.Room_HotelId
-    WHERE r.Room_Id=$roomId AND r.Room_HotelId=$hotelId
-    LIMIT 1
-")->fetch_assoc();
+// Fetch room + hotel info
+$roomRow  = fs_get('rooms',  $roomId);
+$hotelRow = fs_get('hotels', $hotelId);
 
-if (!$room) { header("Location: search.php"); exit(); }
+if (!$roomRow || !$hotelRow || (int)($roomRow['hotelId'] ?? 0) !== $hotelId) {
+    header("Location: search.php"); exit();
+}
+
+// Merge hotel fields into room for template convenience
+$room = array_merge($roomRow, [
+    'Hotel_Name'    => $hotelRow['name']    ?? '',
+    'Hotel_City'    => $hotelRow['city']    ?? '',
+    'Hotel_Address' => $hotelRow['address'] ?? '',
+    'Room_Type'     => $roomRow['type']     ?? '',
+    'Room_Price'    => $roomRow['price']    ?? 0,
+    'Room_Capacity' => $roomRow['capacity'] ?? 1,
+]);
 
 $error = "";
 
@@ -48,40 +56,27 @@ if (isset($_POST['confirm_booking'])) {
     } elseif ($dtIn > $dtMax || $dtOut > $dtMax) {
         $error = "Dates cannot be more than 2 years in the future.";
 
-    } elseif ($guests < 1 || $guests > $room['Room_Capacity']) {
+    } elseif ($guests < 1 || $guests > (int)$room['Room_Capacity']) {
         $error = "Guests must be between 1 and {$room['Room_Capacity']}.";
 
     } else {
-        // =====================================================
-        // DATE CONFLICT CHECK
-        // Find any active booking for this room that overlaps
-        // with the requested dates. Overlap condition:
-        //   existing_checkin  < requested_checkout
-        //   existing_checkout > requested_checkin
-        // =====================================================
-        $ciEsc = $conn->real_escape_string($checkin);
-        $coEsc = $conn->real_escape_string($checkout);
+        // Date conflict check: any active (non-cancelled) booking for this room that overlaps
+        $allRoomBookings = fs_query('bookings', [['roomId', '=', $roomId]]);
+        $conflict = 0;
+        foreach ($allRoomBookings as $bk) {
+            if (($bk['status'] ?? '') === 'cancelled') continue;
+            if ($bk['checkIn'] < $checkout && $bk['checkOut'] > $checkin) {
+                $conflict++;
+            }
+        }
 
-        $conflict = $conn->query("
-            SELECT COUNT(*) AS cnt
-            FROM Bookings
-            WHERE Book_RoomId  = $roomId
-              AND Book_Status  NOT IN ('cancelled')
-              AND Book_CheckIn  < '$coEsc'
-              AND Book_CheckOut > '$ciEsc'
-        ")->fetch_assoc()['cnt'];
-
-        // Check BlockedDates (maintenance / walk-in blocks set by owner)
-        $hasBlockTable = $conn->query("SHOW TABLES LIKE 'BlockedDates'")->num_rows > 0;
+        // Check BlockedDates
         $blockedConflict = 0;
-        if ($hasBlockTable) {
-            $blockedConflict = $conn->query("
-                SELECT COUNT(*) AS cnt
-                FROM BlockedDates
-                WHERE Block_RoomId  = $roomId
-                  AND Block_DateFrom < '$coEsc'
-                  AND Block_DateTo   > '$ciEsc'
-            ")->fetch_assoc()['cnt'];
+        $blockedDates = fs_query('blockeddates', [['roomId', '=', $roomId]]);
+        foreach ($blockedDates as $bd) {
+            if (($bd['dateFrom'] ?? '') < $checkout && ($bd['dateTo'] ?? '') > $checkin) {
+                $blockedConflict++;
+            }
         }
 
         if ($conflict > 0) {
@@ -91,36 +86,22 @@ if (isset($_POST['confirm_booking'])) {
             $error = "This room is unavailable for the selected dates (blocked for maintenance or walk-in). Please choose different dates.";
 
         } else {
-            // Generate unique booking reference code
-            $refCode = 'RD-' . strtoupper(substr(md5(uniqid(mt_rand(), true)), 0, 8));
-
+            $refCode    = 'RD-' . strtoupper(substr(md5(uniqid(mt_rand(), true)), 0, 8));
             $custId     = (int) $_SESSION['customer_id'];
             $totalPrice = $room['Room_Price'] * $nights;
 
-            // Check if Book_RefCode column exists (migration may not have run yet)
-            $hasRefCol = $conn->query("SHOW COLUMNS FROM Bookings LIKE 'Book_RefCode'")->num_rows > 0;
+            $bookingId = fs_insert('bookings', [
+                'custId'     => $custId,
+                'hotelId'    => $hotelId,
+                'roomId'     => $roomId,
+                'checkIn'    => $checkin,
+                'checkOut'   => $checkout,
+                'guests'     => $guests,
+                'totalPrice' => $totalPrice,
+                'refCode'    => $refCode,
+                'status'     => 'pending',
+            ]);
 
-            if ($hasRefCol) {
-                $conn->query("
-                    INSERT INTO Bookings
-                        (Book_CustId, Book_HotelId, Book_RoomId, Book_CheckIn, Book_CheckOut,
-                         Book_Guests, Book_TotalPrice, Book_RefCode)
-                    VALUES
-                        ($custId, $hotelId, $roomId, '$ciEsc', '$coEsc',
-                         $guests, $totalPrice, '$refCode')
-                ");
-            } else {
-                $conn->query("
-                    INSERT INTO Bookings
-                        (Book_CustId, Book_HotelId, Book_RoomId, Book_CheckIn, Book_CheckOut,
-                         Book_Guests, Book_TotalPrice)
-                    VALUES
-                        ($custId, $hotelId, $roomId, '$ciEsc', '$coEsc',
-                         $guests, $totalPrice)
-                ");
-            }
-
-            $bookingId = $conn->insert_id;
             header("Location: /hotels/payment.php?id=$bookingId");
             exit();
         }
@@ -139,17 +120,14 @@ $total = $room['Room_Price'] * $nights;
 // Check for existing conflicting dates to show a warning upfront
 $conflictWarning = false;
 if ($checkin && $checkout) {
-    $ciEsc = $conn->real_escape_string($checkin);
-    $coEsc = $conn->real_escape_string($checkout);
-    $conflictCheck = $conn->query("
-        SELECT COUNT(*) AS cnt
-        FROM Bookings
-        WHERE Book_RoomId  = $roomId
-          AND Book_Status  NOT IN ('cancelled')
-          AND Book_CheckIn  < '$coEsc'
-          AND Book_CheckOut > '$ciEsc'
-    ")->fetch_assoc()['cnt'];
-    $conflictWarning = $conflictCheck > 0;
+    $allRoomBookings = fs_query('bookings', [['roomId', '=', $roomId]]);
+    foreach ($allRoomBookings as $bk) {
+        if (($bk['status'] ?? '') === 'cancelled') continue;
+        if ($bk['checkIn'] < $checkout && $bk['checkOut'] > $checkin) {
+            $conflictWarning = true;
+            break;
+        }
+    }
 }
 
 $title = "Book — " . $room['Hotel_Name'];
@@ -214,7 +192,7 @@ include "../layout/layout.php";
                     <div class="mb-4">
                         <label class="form-label">Number of Guests <span style="color:var(--rd-red)">*</span></label>
                         <select name="guests" class="form-select" required>
-                            <?php for ($g = 1; $g <= $room['Room_Capacity']; $g++): ?>
+                            <?php for ($g = 1; $g <= (int)$room['Room_Capacity']; $g++): ?>
                                 <option value="<?= $g ?>"><?= $g ?> Guest<?= $g > 1 ? 's' : '' ?></option>
                             <?php endfor; ?>
                         </select>
@@ -311,7 +289,7 @@ include "../layout/layout.php";
 
 
 <script>
-const pricePerNight = <?= $room['Room_Price'] ?>;
+const pricePerNight = <?= (int)$room['Room_Price'] ?>;
 function recalc() {
     const ci = document.getElementById('checkin').value;
     const co = document.getElementById('checkout').value;
@@ -323,13 +301,11 @@ function recalc() {
 document.getElementById('checkin').addEventListener('change', function() {
     const ci = this.value;
     if (ci) {
-        // checkout min = checkin + 1 day
         const nextDay = new Date(ci);
         nextDay.setDate(nextDay.getDate() + 1);
         const minCo = nextDay.toISOString().split('T')[0];
         const coInput = document.getElementById('checkout');
         coInput.min = minCo;
-        // if checkout is now before the new min, clear it
         if (coInput.value && coInput.value <= ci) {
             coInput.value = '';
         }

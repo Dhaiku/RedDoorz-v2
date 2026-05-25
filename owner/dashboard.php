@@ -12,30 +12,29 @@ $hotelId = (int) ($_SESSION['hotel_id'] ?? 0);
 if (!$hotelId) { header("Location: /auth/logout.php"); exit(); }
 
 // Stats
-$hotel        = $conn->query("SELECT * FROM Hotels WHERE Hotel_Id=$hotelId LIMIT 1")->fetch_assoc();
-$totalRooms   = $conn->query("SELECT COUNT(*) c FROM Rooms WHERE Room_HotelId=$hotelId")->fetch_assoc()['c'];
-$availRooms   = $conn->query("SELECT COUNT(*) c FROM Rooms WHERE Room_HotelId=$hotelId AND Room_Status='available'")->fetch_assoc()['c'];
-$totalBook    = $conn->query("SELECT COUNT(*) c FROM Bookings WHERE Book_HotelId=$hotelId")->fetch_assoc()['c'];
-$pendingBook  = $conn->query("SELECT COUNT(*) c FROM Bookings WHERE Book_HotelId=$hotelId AND Book_Status='pending'")->fetch_assoc()['c'];
+$hotel       = fs_get('hotels', $hotelId);
+$totalRooms  = fs_count('rooms', [['hotelId', '=', $hotelId]]);
+$availRooms  = fs_count('rooms', [['hotelId', '=', $hotelId], ['status', '=', 'available']]);
+$totalBook   = fs_count('bookings', [['hotelId', '=', $hotelId]]);
+$pendingBook = fs_count('bookings', [['hotelId', '=', $hotelId], ['status', '=', 'pending']]);
 
 // Earnings
-$hasEarnings  = $conn->query("SHOW TABLES LIKE 'Earnings'")->num_rows > 0;
-$totalEarnings = 0; $pendingEarnings = 0;
-if ($hasEarnings) {
-    $totalEarnings   = $conn->query("SELECT COALESCE(SUM(Earn_OwnerShare),0) v FROM Earnings WHERE Earn_HotelId=$hotelId AND Earn_Status!='voided'")->fetch_assoc()['v'];
-    $pendingEarnings = $conn->query("SELECT COALESCE(SUM(Earn_OwnerShare),0) v FROM Earnings WHERE Earn_HotelId=$hotelId AND Earn_Status='pending'")->fetch_assoc()['v'];
-}
+$totalEarnings   = fs_sum('earnings', 'ownerShare', [['hotelId', '=', $hotelId], ['status', '!=', 'voided']]);
+$pendingEarnings = fs_sum('earnings', 'ownerShare', [['hotelId', '=', $hotelId], ['status', '=', 'pending']]);
 
-// Recent bookings
-$recent = $conn->query("
-    SELECT b.*, r.Room_Type, c.Cust_FName, c.Cust_LName
-    FROM Bookings b
-    JOIN Rooms     r ON r.Room_Id  = b.Book_RoomId
-    JOIN Customers c ON c.Cust_Id  = b.Book_CustId
-    WHERE b.Book_HotelId = $hotelId
-    ORDER BY b.Book_CreatedAt DESC
-    LIMIT 8
-");
+// Recent bookings (last 8, ordered by createdAt desc)
+$recentBookings = fs_query('bookings', [['hotelId', '=', $hotelId]], [['createdAt', 'DESC']], 8);
+
+// Enrich with room type and customer name
+foreach ($recentBookings as &$b) {
+    $room = fs_get('rooms', (int)$b['roomId']);
+    $b['roomType'] = $room['type'] ?? '';
+
+    $cust = fs_get('customers', (int)$b['custId']);
+    $b['custFirstName'] = $cust['firstName'] ?? '';
+    $b['custLastName']  = $cust['lastName']  ?? '';
+}
+unset($b);
 
 $title = "Owner Dashboard";
 include "../layout/layout.php";
@@ -47,8 +46,8 @@ include "../layout/layout.php";
     <div style="flex:1; padding:36px 32px; overflow:visible;">
 
         <div class="page-header">
-            <h1><?= htmlspecialchars($hotel['Hotel_Name'] ?? 'My Hotel') ?></h1>
-            <p><?= htmlspecialchars($hotel['Hotel_City'] ?? '') ?> &mdash; Owner Dashboard</p>
+            <h1><?= htmlspecialchars($hotel['name'] ?? 'My Hotel') ?></h1>
+            <p><?= htmlspecialchars($hotel['city'] ?? '') ?> &mdash; Owner Dashboard</p>
         </div>
 
         <!-- Stats -->
@@ -122,7 +121,7 @@ include "../layout/layout.php";
                 <a href="/owner/manage_bookings.php" style="font-size:13px; color:var(--rd-red); font-weight:600; text-decoration:none;">View all</a>
             </div>
 
-            <?php if ($recent->num_rows === 0): ?>
+            <?php if (empty($recentBookings)): ?>
             <div style="padding:40px; text-align:center; color:#999; font-size:14px;">No bookings yet.</div>
             <?php else: ?>
             <div style="overflow-x:auto;">
@@ -138,8 +137,8 @@ include "../layout/layout.php";
                         </tr>
                     </thead>
                     <tbody>
-                    <?php while ($b = $recent->fetch_assoc()):
-                        $badge = match($b['Book_Status']) {
+                    <?php foreach ($recentBookings as $b):
+                        $badge = match($b['status']) {
                             'confirmed' => '<span class="badge-confirmed">Confirmed</span>',
                             'cancelled' => '<span class="badge-cancelled">Cancelled</span>',
                             'completed' => '<span class="badge-completed">Completed</span>',
@@ -147,14 +146,14 @@ include "../layout/layout.php";
                         };
                     ?>
                     <tr>
-                        <td style="color:#999;">#<?= str_pad($b['Book_Id'],4,'0',STR_PAD_LEFT) ?></td>
-                        <td style="font-weight:600;"><?= htmlspecialchars($b['Cust_FName'].' '.$b['Cust_LName']) ?></td>
-                        <td style="color:#555;"><?= htmlspecialchars($b['Room_Type']) ?></td>
-                        <td style="color:#555;"><?= date('M d, Y', strtotime($b['Book_CheckIn'])) ?></td>
-                        <td style="font-weight:700; color:var(--rd-red);">&#8369;<?= number_format($b['Book_TotalPrice']) ?></td>
+                        <td style="color:#999;">#<?= str_pad($b['id'],4,'0',STR_PAD_LEFT) ?></td>
+                        <td style="font-weight:600;"><?= htmlspecialchars($b['custFirstName'].' '.$b['custLastName']) ?></td>
+                        <td style="color:#555;"><?= htmlspecialchars($b['roomType']) ?></td>
+                        <td style="color:#555;"><?= date('M d, Y', strtotime($b['checkIn'])) ?></td>
+                        <td style="font-weight:700; color:var(--rd-red);">&#8369;<?= number_format($b['totalPrice']) ?></td>
                         <td><?= $badge ?></td>
                     </tr>
-                    <?php endwhile; ?>
+                    <?php endforeach; ?>
                     </tbody>
                 </table>
             </div>

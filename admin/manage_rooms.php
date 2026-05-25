@@ -13,14 +13,22 @@ $filterHotel = (int) ($_GET['hotel'] ?? 0);
 if (isset($_POST['toggle_status'])) {
     $id     = (int) $_POST['room_id'];
     $status = in_array($_POST['new_status'], ['available','unavailable','maintenance']) ? $_POST['new_status'] : 'available';
-    $conn->query("UPDATE Rooms SET Room_Status='$status' WHERE Room_Id=$id");
+    fs_update('rooms', $id, ['status' => $status]);
     $message = "Room status updated.";
 }
 
-$hotels = $conn->query("SELECT Hotel_Id, Hotel_Name, Hotel_City FROM Hotels WHERE Hotel_Status='active' ORDER BY Hotel_Name");
+$activeHotels = fs_query('hotels', [['status', '=', 'active']], [['name', 'ASC']]);
 
-$where  = $filterHotel ? "WHERE r.Room_HotelId=$filterHotel" : "";
-$rooms  = $conn->query("SELECT r.*, h.Hotel_Name, h.Hotel_City FROM Rooms r JOIN Hotels h ON h.Hotel_Id=r.Room_HotelId $where ORDER BY h.Hotel_Name, r.Room_Price");
+$roomWheres = $filterHotel ? [['hotelId', '=', $filterHotel]] : [];
+$rooms = fs_query('rooms', $roomWheres, [['type', 'ASC']]);
+
+// Enrich rooms with hotel name
+foreach ($rooms as &$r) {
+    $hotel = fs_get('hotels', (int)($r['hotelId'] ?? 0));
+    $r['hotelName'] = $hotel['name'] ?? '';
+    $r['hotelCity'] = $hotel['city'] ?? '';
+}
+unset($r);
 
 $title = "Manage Rooms";
 include "../layout/layout.php";
@@ -50,14 +58,11 @@ include "../layout/layout.php";
         <form method="GET" class="d-flex align-items-center gap-3 mb-4" style="max-width:400px;">
             <select name="hotel" class="form-select" onchange="this.form.submit()" style="font-size:14px;">
                 <option value="">All Hotels</option>
-                <?php
-                $hotels->data_seek(0);
-                while ($h = $hotels->fetch_assoc()):
-                ?>
-                <option value="<?= $h['Hotel_Id'] ?>" <?= $filterHotel == $h['Hotel_Id'] ? 'selected' : '' ?>>
-                    <?= htmlspecialchars($h['Hotel_Name']) ?>
+                <?php foreach ($activeHotels as $h): ?>
+                <option value="<?= $h['id'] ?>" <?= $filterHotel == $h['id'] ? 'selected' : '' ?>>
+                    <?= htmlspecialchars($h['name']) ?>
                 </option>
-                <?php endwhile; ?>
+                <?php endforeach; ?>
             </select>
         </form>
 
@@ -76,33 +81,33 @@ include "../layout/layout.php";
                         </tr>
                     </thead>
                     <tbody>
-                    <?php if ($rooms->num_rows === 0): ?>
+                    <?php if (empty($rooms)): ?>
                         <tr><td colspan="6" style="padding:40px; text-align:center; color:#999;">No rooms found.</td></tr>
-                    <?php else: while ($r = $rooms->fetch_assoc()): ?>
+                    <?php else: foreach ($rooms as $r): ?>
                     <tr style="border-bottom:1px solid #F8F8F8;">
-                        <td style="padding:14px 16px; color:#555; font-size:13px;"><?= htmlspecialchars($r['Hotel_Name']) ?></td>
-                        <td style="padding:14px 16px; font-weight:600;"><?= htmlspecialchars($r['Room_Type']) ?></td>
-                        <td style="padding:14px 16px; color:var(--rd-red); font-weight:700;">₱<?= number_format($r['Room_Price']) ?></td>
-                        <td style="padding:14px 16px; color:#555;"><?= $r['Room_Capacity'] ?> guest<?= $r['Room_Capacity'] > 1 ? 's' : '' ?></td>
+                        <td style="padding:14px 16px; color:#555; font-size:13px;"><?= htmlspecialchars($r['hotelName']) ?></td>
+                        <td style="padding:14px 16px; font-weight:600;"><?= htmlspecialchars($r['type']) ?></td>
+                        <td style="padding:14px 16px; color:var(--rd-red); font-weight:700;">₱<?= number_format($r['price']) ?></td>
+                        <td style="padding:14px 16px; color:#555;"><?= $r['capacity'] ?> guest<?= ($r['capacity'] ?? 0) > 1 ? 's' : '' ?></td>
                         <td style="padding:14px 16px;">
                             <?php
-                            $statusColor = match($r['Room_Status']) {
+                            $statusColor = match($r['status'] ?? '') {
                                 'available'   => ['#D1E7DD','#0A3622'],
                                 'maintenance' => ['#FFF3CD','#856404'],
                                 default       => ['#F8D7DA','#842029'],
                             };
                             ?>
                             <span style="background:<?= $statusColor[0] ?>; color:<?= $statusColor[1] ?>; padding:3px 10px; border-radius:20px; font-size:12px; font-weight:600;">
-                                <?= ucfirst($r['Room_Status']) ?>
+                                <?= ucfirst($r['status'] ?? '') ?>
                             </span>
                         </td>
                         <td style="padding:14px 16px; text-align:center;">
                             <form method="POST" style="display:flex; gap:6px; justify-content:center; align-items:center;">
-                                <input type="hidden" name="room_id" value="<?= $r['Room_Id'] ?>">
+                                <input type="hidden" name="room_id" value="<?= $r['id'] ?>">
                                 <select name="new_status" class="form-select" style="font-size:12px; padding:4px 8px; width:140px;">
-                                    <option value="available"   <?= $r['Room_Status']==='available'   ? 'selected' : '' ?>>Available</option>
-                                    <option value="unavailable" <?= $r['Room_Status']==='unavailable' ? 'selected' : '' ?>>Unavailable</option>
-                                    <option value="maintenance" <?= $r['Room_Status']==='maintenance' ? 'selected' : '' ?>>Maintenance</option>
+                                    <option value="available"   <?= ($r['status'] ?? '')==='available'   ? 'selected' : '' ?>>Available</option>
+                                    <option value="unavailable" <?= ($r['status'] ?? '')==='unavailable' ? 'selected' : '' ?>>Unavailable</option>
+                                    <option value="maintenance" <?= ($r['status'] ?? '')==='maintenance' ? 'selected' : '' ?>>Maintenance</option>
                                 </select>
                                 <button type="submit" name="toggle_status"
                                         style="background:var(--rd-red); color:#fff; border:none; padding:5px 12px; font-size:12px; border-radius:6px; cursor:pointer; font-weight:600; white-space:nowrap;">
@@ -111,7 +116,7 @@ include "../layout/layout.php";
                             </form>
                         </td>
                     </tr>
-                    <?php endwhile; endif; ?>
+                    <?php endforeach; endif; ?>
                     </tbody>
                 </table>
             </div>

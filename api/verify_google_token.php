@@ -2,7 +2,7 @@
 /**
  * POST /api/verify_google_token.php
  * Called by Android after Google Sign-In gives it a Firebase ID token.
- * Verifies the token with Firebase Admin SDK, then either:
+ * Verifies the token with Firebase Admin SDK (kreait), then either:
  *   - Links to an existing account (matched by email), or
  *   - Creates a new customer account automatically.
  *
@@ -37,57 +37,45 @@ try {
     $name        = $verified->claims()->get('name')  ?? '';
     $picture     = $verified->claims()->get('picture') ?? '';
 
-    $safeEmail = $conn->real_escape_string($email);
-
     // Check if account already exists by email
-    $account = $conn->query("SELECT * FROM Accounts WHERE Acct_Email='$safeEmail' LIMIT 1")->fetch_assoc();
+    $account = fs_find('accounts', [['email', '=', $email]]);
 
     if ($account) {
-        // Existing account — link Firebase UID if not already stored
-        $hasUidCol = $conn->query("SHOW COLUMNS FROM Accounts LIKE 'Acct_FirebaseUid'")->num_rows > 0;
-        if ($hasUidCol) {
-            $safeUid = $conn->real_escape_string($firebaseUid);
-            $conn->query("UPDATE Accounts SET Acct_FirebaseUid='$safeUid' WHERE Acct_Id={$account['Acct_Id']}");
+        $acctId = (int)$account['id'];
+        $role   = $account['role'];
+
+        // Store Firebase UID if not already set
+        if (empty($account['firebaseUid'])) {
+            fs_update('accounts', $acctId, ['firebaseUid' => $firebaseUid]);
         }
-        $acctId = (int) $account['Acct_Id'];
-        $role   = $account['Acct_Role'];
 
         // Get display name
         if ($role === 'customer') {
-            $cust = $conn->query("SELECT Cust_FName, Cust_LName FROM Customers WHERE Cust_AcctId=$acctId LIMIT 1")->fetch_assoc();
-            $displayName = trim(($cust['Cust_FName'] ?? '') . ' ' . ($cust['Cust_LName'] ?? ''));
+            $cust = fs_find('customers', [['acctId', '=', $acctId]]);
+            $displayName = trim(($cust['firstName'] ?? '') . ' ' . ($cust['lastName'] ?? ''));
         } else {
-            $displayName = $account['Acct_Email'];
+            $displayName = $account['email'];
         }
+
     } else {
         // New user — create account + customer profile
-        $safeName = $conn->real_escape_string($name);
         $nameParts = explode(' ', trim($name), 2);
-        $firstName = $conn->real_escape_string($nameParts[0] ?? $name);
-        $lastName  = $conn->real_escape_string($nameParts[1] ?? '');
+        $firstName = $nameParts[0] ?? $name;
+        $lastName  = $nameParts[1] ?? '';
 
-        // Insert account (no password — Google-authenticated)
-        $safeUid = $conn->real_escape_string($firebaseUid);
-        $hasUidCol = $conn->query("SHOW COLUMNS FROM Accounts LIKE 'Acct_FirebaseUid'")->num_rows > 0;
+        $acctId = fs_insert('accounts', [
+            'email'       => $email,
+            'password'    => '',   // no password — Google-authenticated
+            'role'        => 'customer',
+            'status'      => 'active',
+            'firebaseUid' => $firebaseUid,
+        ]);
 
-        if ($hasUidCol) {
-            $conn->query("
-                INSERT INTO Accounts (Acct_Email, Acct_Password, Acct_Role, Acct_Status, Acct_FirebaseUid)
-                VALUES ('$safeEmail', '', 'customer', 'active', '$safeUid')
-            ");
-        } else {
-            $conn->query("
-                INSERT INTO Accounts (Acct_Email, Acct_Password, Acct_Role, Acct_Status)
-                VALUES ('$safeEmail', '', 'customer', 'active')
-            ");
-        }
-        $acctId = $conn->insert_id;
-
-        // Insert customer profile
-        $conn->query("
-            INSERT INTO Customers (Cust_AcctId, Cust_FName, Cust_LName)
-            VALUES ($acctId, '$firstName', '$lastName')
-        ");
+        fs_insert('customers', [
+            'acctId'    => $acctId,
+            'firstName' => $firstName,
+            'lastName'  => $lastName,
+        ]);
 
         $role        = 'customer';
         $displayName = trim("$firstName $lastName");

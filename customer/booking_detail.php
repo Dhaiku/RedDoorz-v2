@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 session_start();
 require_once "../config/db.php";
 
@@ -11,15 +11,15 @@ $custId = (int) $_SESSION['customer_id'];
 
 // Handle cancellation from this page
 if (isset($_POST['cancel_booking']) && $bookId) {
-    $bRow = $conn->query("SELECT Book_Status, Book_CheckIn FROM Bookings WHERE Book_Id=$bookId AND Book_CustId=$custId LIMIT 1")->fetch_assoc();
+    $bRow = fs_find('bookings', [['id', '=', $bookId], ['custId', '=', $custId]]);
     $detailCancelMsg = '';
-    if ($bRow && in_array($bRow['Book_Status'], ['pending', 'confirmed'])) {
-        $hoursUntilCI = (strtotime($bRow['Book_CheckIn']) - time()) / 3600;
+    if ($bRow && in_array($bRow['status'], ['pending', 'confirmed'])) {
+        $hoursUntilCI = (strtotime($bRow['checkIn']) - time()) / 3600;
         if ($hoursUntilCI >= 24) {
-            $conn->query("UPDATE Bookings SET Book_Status='cancelled' WHERE Book_Id=$bookId AND Book_CustId=$custId");
-            $hasEarningsTable = $conn->query("SHOW TABLES LIKE 'Earnings'")->num_rows > 0;
-            if ($hasEarningsTable) {
-                $conn->query("UPDATE Earnings SET Earn_Status='voided' WHERE Earn_BookId=$bookId");
+            fs_update('bookings', $bookId, ['status' => 'cancelled']);
+            $earnRow = fs_find('earnings', [['bookId', '=', $bookId]]);
+            if ($earnRow) {
+                fs_update('earnings', (int)$earnRow['id'], ['status' => 'voided']);
             }
             header("Location: dashboard.php?cancelled=1"); exit();
         } else {
@@ -30,25 +30,34 @@ if (isset($_POST['cancel_booking']) && $bookId) {
     }
 }
 
-$booking = $conn->query("
-    SELECT b.*, h.Hotel_Name, h.Hotel_City, h.Hotel_Address, h.Hotel_Rating,
-           r.Room_Type, r.Room_Price, r.Room_Capacity, r.Room_Description,
-           c.Cust_FName, c.Cust_LName, c.Cust_Phone,
-           a.Acct_Email
-    FROM Bookings b
-    JOIN Hotels    h ON h.Hotel_Id  = b.Book_HotelId
-    JOIN Rooms     r ON r.Room_Id   = b.Book_RoomId
-    JOIN Customers c ON c.Cust_Id   = b.Book_CustId
-    JOIN Accounts  a ON a.Acct_Id   = c.Cust_AcctId
-    WHERE b.Book_Id=$bookId AND b.Book_CustId=$custId
-    LIMIT 1
-")->fetch_assoc();
+// Fetch booking
+$bookingBase = fs_find('bookings', [['id', '=', $bookId], ['custId', '=', $custId]]);
+if (!$bookingBase) { header("Location: dashboard.php"); exit(); }
 
-if (!$booking) { header("Location: dashboard.php"); exit(); }
+// Enrich with hotel, room, customer, account data
+$hotel   = fs_get('hotels',    (int)$bookingBase['hotelId']);
+$room    = fs_get('rooms',     (int)$bookingBase['roomId']);
+$cust    = fs_get('customers', (int)$bookingBase['custId']);
+$acct    = $cust ? fs_get('accounts', (int)$cust['acctId']) : null;
 
-$nights = max(1, (new DateTime($booking['Book_CheckIn']))->diff(new DateTime($booking['Book_CheckOut']))->days);
+$booking = array_merge($bookingBase, [
+    'hotelName'    => $hotel['name']        ?? '',
+    'hotelCity'    => $hotel['city']        ?? '',
+    'hotelAddress' => $hotel['address']     ?? '',
+    'hotelRating'  => $hotel['rating']      ?? 0,
+    'roomType'     => $room['type']         ?? '',
+    'roomPrice'    => $room['price']        ?? 0,
+    'roomCapacity' => $room['capacity']     ?? 0,
+    'roomDesc'     => $room['description']  ?? '',
+    'custFName'    => $cust['firstName']    ?? '',
+    'custLName'    => $cust['lastName']     ?? '',
+    'custPhone'    => $cust['phone']        ?? '',
+    'acctEmail'    => $acct['email']        ?? '',
+]);
 
-$statusConfig = match($booking['Book_Status']) {
+$nights = max(1, (new DateTime($booking['checkIn']))->diff(new DateTime($booking['checkOut']))->days);
+
+$statusConfig = match($booking['status']) {
     'confirmed' => ['#0A3622', '#D1E7DD', 'Confirmed'],
     'cancelled' => ['#842029', '#F8D7DA', 'Cancelled'],
     'completed' => ['#084298', '#CFE2FF', 'Completed'],
@@ -56,57 +65,55 @@ $statusConfig = match($booking['Book_Status']) {
 };
 [$statusColor, $statusBg, $statusLabel] = $statusConfig;
 
-// Fetch payment info if Payments table exists
-$payment = null;
-$hasPaymentsTable = $conn->query("SHOW TABLES LIKE 'Payments'")->num_rows > 0;
-if ($hasPaymentsTable) {
-    $payment = $conn->query("SELECT * FROM Payments WHERE Paymt_BookId=$bookId LIMIT 1")->fetch_assoc();
-}
+// Fetch payment info
+$payment = fs_find('payments', [['bookId', '=', $bookId]]);
 
 $justPaid = isset($_GET['paid']) && $_GET['paid'] == '1';
 
 // Handle review submission
 $reviewMsg = '';
 $reviewError = '';
-if (isset($_POST['submit_review']) && $booking['Book_Status'] === 'completed') {
+if (isset($_POST['submit_review']) && $booking['status'] === 'completed') {
     $rating  = (int) ($_POST['review_rating'] ?? 0);
-    $comment = trim($conn->real_escape_string($_POST['review_comment'] ?? ''));
+    $comment = trim($_POST['review_comment'] ?? '');
     if ($rating < 1 || $rating > 5) {
         $reviewError = 'Please select a rating from 1 to 5 stars.';
     } else {
-        $hasReviews = $conn->query("SHOW TABLES LIKE 'Reviews'")->num_rows > 0;
-        if ($hasReviews) {
-            $alreadyReviewed = $conn->query("SELECT Review_Id FROM Reviews WHERE Review_BookId=$bookId LIMIT 1")->num_rows > 0;
-            if ($alreadyReviewed) {
-                $reviewError = 'You have already rated this booking.';
-            } else {
-                $hId = (int) $booking['Book_HotelId'];
-                $cId = (int) $custId;
-                $conn->query("
-                    INSERT INTO Reviews (Review_BookId, Review_HotelId, Review_CustId, Review_Rating, Review_Comment)
-                    VALUES ($bookId, $hId, $cId, $rating, '$comment')
-                ");
-                // Recalculate hotel average rating
-                $avg = $conn->query("SELECT ROUND(AVG(Review_Rating),1) AS avg FROM Reviews WHERE Review_HotelId=$hId")->fetch_assoc()['avg'];
-                $conn->query("UPDATE Hotels SET Hotel_Rating=$avg WHERE Hotel_Id=$hId");
-                header("Location: booking_detail.php?id=$bookId&reviewed=1"); exit();
-            }
+        $alreadyReviewed = fs_find('reviews', [['bookId', '=', $bookId]]);
+        if ($alreadyReviewed) {
+            $reviewError = 'You have already rated this booking.';
+        } else {
+            $hId = (int)$booking['hotelId'];
+            $cId = (int)$custId;
+            fs_insert('reviews', [
+                'bookId'  => $bookId,
+                'hotelId' => $hId,
+                'custId'  => $cId,
+                'rating'  => $rating,
+                'comment' => $comment,
+            ]);
+            // Recalculate hotel average rating
+            $allReviews = fs_query('reviews', [['hotelId', '=', $hId]]);
+            $avgRating = count($allReviews) > 0
+                ? round(array_sum(array_column($allReviews, 'rating')) / count($allReviews), 1)
+                : 0;
+            fs_update('hotels', $hId, ['rating' => $avgRating]);
+            header("Location: booking_detail.php?id=$bookId&reviewed=1"); exit();
         }
     }
 }
 
 // Check if already reviewed
-$hasReviews = $conn->query("SHOW TABLES LIKE 'Reviews'")->num_rows > 0;
-$existingReview = null;
-if ($hasReviews) {
-    $existingReview = $conn->query("SELECT * FROM Reviews WHERE Review_BookId=$bookId LIMIT 1")->fetch_assoc();
-}
+$existingReview = fs_find('reviews', [['bookId', '=', $bookId]]);
+$justReviewed   = isset($_GET['reviewed']) && $_GET['reviewed'] == '1';
 
-$justReviewed = isset($_GET['reviewed']) && $_GET['reviewed'] == '1';
-
-$title = "Booking #" . $bookId;
+$title    = "Booking #" . $bookId;
 include "../layout/layout.php";
-$imgSeed = 'reddoorz' . $booking['Book_HotelId'];
+$imgSeed = 'reddoorz' . $booking['hotelId'];
+
+// Compute hours until check-in for cancellation check
+$checkInTs     = strtotime($booking['checkIn']);
+$hoursUntilCI  = ($checkInTs - time()) / 3600;
 ?>
 
 <div style="display:flex; min-height:calc(100vh - 64px);">
@@ -166,10 +173,10 @@ $imgSeed = 'reddoorz' . $booking['Book_HotelId'];
                 <div style="position:absolute; inset:0; background:linear-gradient(to right, rgba(136,0,22,0.82) 0%, rgba(184,0,32,0.45) 60%, transparent 100%);"></div>
                 <div style="position:absolute; inset:0; padding:24px 28px; display:flex; flex-direction:column; justify-content:flex-end; color:#fff;">
                     <div style="font-size:11px; opacity:0.7; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px;">Hotel</div>
-                    <div style="font-size:22px; font-weight:700; margin-bottom:3px;"><?= htmlspecialchars($booking['Hotel_Name']) ?></div>
+                    <div style="font-size:22px; font-weight:700; margin-bottom:3px;"><?= htmlspecialchars($booking['hotelName']) ?></div>
                     <div style="font-size:13px; opacity:0.82; display:flex; align-items:center; gap:5px;">
                         <i class="bi bi-geo-alt-fill" style="font-size:11px;"></i>
-                        <?= htmlspecialchars($booking['Hotel_Address'] ?? $booking['Hotel_City']) ?>
+                        <?= htmlspecialchars($booking['hotelAddress'] ?: $booking['hotelCity']) ?>
                     </div>
                 </div>
             </div>
@@ -184,11 +191,11 @@ $imgSeed = 'reddoorz' . $booking['Book_HotelId'];
                         <div style="display:flex; flex-direction:column; gap:11px; font-size:14px;">
                             <?php
                             $stayDetails = [
-                                ['Room Type',  htmlspecialchars($booking['Room_Type'])],
-                                ['Check-in',   date('D, M d Y', strtotime($booking['Book_CheckIn']))],
-                                ['Check-out',  date('D, M d Y', strtotime($booking['Book_CheckOut']))],
+                                ['Room Type',  htmlspecialchars($booking['roomType'])],
+                                ['Check-in',   date('D, M d Y', strtotime($booking['checkIn']))],
+                                ['Check-out',  date('D, M d Y', strtotime($booking['checkOut']))],
                                 ['Duration',   $nights . ' night' . ($nights != 1 ? 's' : '')],
-                                ['Guests',     $booking['Book_Guests'] . ' guest' . ($booking['Book_Guests'] > 1 ? 's' : '')],
+                                ['Guests',     $booking['guests'] . ' guest' . ($booking['guests'] > 1 ? 's' : '')],
                             ];
                             foreach ($stayDetails as [$lbl, $val]):
                             ?>
@@ -208,7 +215,7 @@ $imgSeed = 'reddoorz' . $booking['Book_HotelId'];
                         <div style="display:flex; flex-direction:column; gap:11px; font-size:14px;">
                             <div style="display:flex; justify-content:space-between;">
                                 <span style="color:var(--rd-muted);">Room rate</span>
-                                <span>&#8369;<?= number_format($booking['Room_Price']) ?>/night</span>
+                                <span>&#8369;<?= number_format($booking['roomPrice']) ?>/night</span>
                             </div>
                             <div style="display:flex; justify-content:space-between;">
                                 <span style="color:var(--rd-muted);">Nights</span>
@@ -221,7 +228,7 @@ $imgSeed = 'reddoorz' . $booking['Book_HotelId'];
                             <hr style="margin:4px 0; border-color:var(--rd-border);">
                             <div style="display:flex; justify-content:space-between;">
                                 <span style="font-weight:700; color:#111;">Total Paid</span>
-                                <span class="price-tag" style="font-size:18px;">&#8369;<?= number_format($booking['Book_TotalPrice']) ?></span>
+                                <span class="price-tag" style="font-size:18px;">&#8369;<?= number_format($booking['totalPrice']) ?></span>
                             </div>
                         </div>
                     </div>
@@ -236,27 +243,27 @@ $imgSeed = 'reddoorz' . $booking['Book_HotelId'];
                     <div class="col-sm-6">
                         <span style="color:var(--rd-muted); font-size:12px;">Full Name</span>
                         <div style="font-weight:600; margin-top:2px;">
-                            <?= htmlspecialchars($booking['Cust_FName'] . ' ' . $booking['Cust_LName']) ?>
+                            <?= htmlspecialchars($booking['custFName'] . ' ' . $booking['custLName']) ?>
                         </div>
                     </div>
                     <div class="col-sm-6">
                         <span style="color:var(--rd-muted); font-size:12px;">Email</span>
                         <div style="font-weight:600; margin-top:2px;">
-                            <?= htmlspecialchars($booking['Acct_Email']) ?>
+                            <?= htmlspecialchars($booking['acctEmail']) ?>
                         </div>
                     </div>
-                    <?php if ($booking['Cust_Phone']): ?>
+                    <?php if ($booking['custPhone']): ?>
                     <div class="col-sm-6">
                         <span style="color:var(--rd-muted); font-size:12px;">Phone</span>
                         <div style="font-weight:600; margin-top:2px;">
-                            <?= htmlspecialchars($booking['Cust_Phone']) ?>
+                            <?= htmlspecialchars($booking['custPhone']) ?>
                         </div>
                     </div>
                     <?php endif; ?>
                     <div class="col-sm-6">
                         <span style="color:var(--rd-muted); font-size:12px;">Booked On</span>
                         <div style="font-weight:600; margin-top:2px;">
-                            <?= date('M d, Y', strtotime($booking['Book_CreatedAt'])) ?>
+                            <?= date('M d, Y', strtotime($booking['createdAt'])) ?>
                         </div>
                     </div>
                 </div>
@@ -271,8 +278,9 @@ $imgSeed = 'reddoorz' . $booking['Book_HotelId'];
                 'credit_card'    => ['Credit / Debit Card','bi-credit-card',   '#7C3AED', '#F5F3FF'],
                 'pay_at_hotel'   => ['Pay at Hotel',       'bi-building-check','#92400E', '#FFFBEB'],
             ];
-            [$mLabel, $mIcon, $mColor, $mBg] = $methodLabels[$payment['Paymt_Method']] ?? [$payment['Paymt_Method'], 'bi-cash', '#555', '#F5F5F5'];
-            $isPaid = $payment['Paymt_Status'] === 'paid';
+            [$mLabel, $mIcon, $mColor, $mBg] = $methodLabels[$payment['method']] ?? [$payment['method'], 'bi-cash', '#555', '#F5F5F5'];
+            $isPaid = $payment['status'] === 'paid';
+            $paymentDate = $payment['date'] ?? $payment['createdAt'] ?? '';
             ?>
             <div style="background:#fff; border-radius:14px; padding:22px; box-shadow:var(--rd-shadow); margin-bottom:20px; border:1px solid rgba(228,223,223,0.5);">
                 <h6 style="font-size:11px; text-transform:uppercase; letter-spacing:0.6px; color:var(--rd-muted); margin-bottom:16px;">Payment Information</h6>
@@ -298,26 +306,28 @@ $imgSeed = 'reddoorz' . $booking['Book_HotelId'];
                         <?php endif; ?>
                     </div>
 
-                    <?php if ($payment['Paymt_RefCode']): ?>
+                    <?php if (!empty($payment['refCode'])): ?>
                     <div style="display:flex; justify-content:space-between; gap:10px;">
                         <span style="color:var(--rd-muted);">Reference No.</span>
-                        <span style="font-weight:600; font-family:monospace;"><?= htmlspecialchars($payment['Paymt_RefCode']) ?></span>
+                        <span style="font-weight:600; font-family:monospace;"><?= htmlspecialchars($payment['refCode']) ?></span>
                     </div>
                     <?php endif; ?>
 
                     <div style="display:flex; justify-content:space-between; gap:10px;">
                         <span style="color:var(--rd-muted);">Amount</span>
-                        <span class="price-tag" style="font-size:16px;">&#8369;<?= number_format($payment['Paymt_Amount'], 2) ?></span>
+                        <span class="price-tag" style="font-size:16px;">&#8369;<?= number_format($payment['amount'], 2) ?></span>
                     </div>
 
+                    <?php if ($paymentDate): ?>
                     <div style="display:flex; justify-content:space-between; gap:10px;">
                         <span style="color:var(--rd-muted);">Date</span>
-                        <span style="font-weight:600;"><?= date('M d, Y g:i A', strtotime($payment['Paymt_Date'])) ?></span>
+                        <span style="font-weight:600;"><?= date('M d, Y g:i A', strtotime($paymentDate)) ?></span>
                     </div>
+                    <?php endif; ?>
 
                 </div>
             </div>
-            <?php elseif ($booking['Book_Status'] === 'pending'): ?>
+            <?php elseif ($booking['status'] === 'pending'): ?>
             <div style="background:#FFF8E1; border:1px solid #FFE082; color:#7B5800; border-radius:12px; padding:14px 18px; margin-bottom:20px; font-size:13px; display:flex; align-items:center; gap:10px;">
                 <i class="bi bi-exclamation-triangle" style="font-size:16px; flex-shrink:0;"></i>
                 <span>Payment not yet completed. <a href="/hotels/payment.php?id=<?= $bookId ?>" style="color:#B80020; font-weight:600;">Complete payment now</a></span>
@@ -333,9 +343,7 @@ $imgSeed = 'reddoorz' . $booking['Book_HotelId'];
                     <i class="bi bi-search me-1"></i>Book Another Stay
                 </a>
                 <?php
-                $checkInTs = strtotime($booking['Book_CheckIn']);
-                $hoursUntilCI = ($checkInTs - time()) / 3600;
-                $canCancel = in_array($booking['Book_Status'], ['pending', 'confirmed']) && $hoursUntilCI >= 24;
+                $canCancel = in_array($booking['status'], ['pending', 'confirmed']) && $hoursUntilCI >= 24;
                 if ($canCancel):
                 ?>
                 <button type="button" class="btn btn-outline-danger" style="font-size:14px; padding:10px 24px; border-radius:8px; font-family:'DM Sans',sans-serif; font-weight:600;"
@@ -345,14 +353,14 @@ $imgSeed = 'reddoorz' . $booking['Book_HotelId'];
                 <?php endif; ?>
             </div>
 
-            <?php if (in_array($booking['Book_Status'], ['pending','confirmed']) && $hoursUntilCI < 24 && $hoursUntilCI >= 0): ?>
+            <?php if (in_array($booking['status'], ['pending','confirmed']) && $hoursUntilCI < 24 && $hoursUntilCI >= 0): ?>
             <div class="alert-rd-danger mt-3" style="display:flex; align-items:center; gap:9px;">
                 <i class="bi bi-clock"></i>
                 Cancellation is no longer available — check-in is less than 24 hours away.
             </div>
             <?php endif; ?>
 
-            <?php if ($booking['Book_Status'] === 'completed'): ?>
+            <?php if ($booking['status'] === 'completed'): ?>
             <!-- ===== Rate This Hotel ===== -->
             <div style="background:#fff; border-radius:14px; padding:22px; box-shadow:var(--rd-shadow); margin-top:24px; border:1px solid rgba(228,223,223,0.5);">
                 <h6 style="font-size:13px; font-weight:700; margin-bottom:14px; display:flex; align-items:center; gap:7px;">
@@ -365,18 +373,18 @@ $imgSeed = 'reddoorz' . $booking['Book_HotelId'];
                         <div>
                             <div style="display:flex; gap:3px; margin-bottom:6px;">
                                 <?php for ($s = 1; $s <= 5; $s++): ?>
-                                <i class="bi bi-star<?= $s <= $existingReview['Review_Rating'] ? '-fill' : '' ?>"
-                                   style="font-size:20px; color:<?= $s <= $existingReview['Review_Rating'] ? '#C98A00' : '#DDD' ?>;"></i>
+                                <i class="bi bi-star<?= $s <= $existingReview['rating'] ? '-fill' : '' ?>"
+                                   style="font-size:20px; color:<?= $s <= $existingReview['rating'] ? '#C98A00' : '#DDD' ?>;"></i>
                                 <?php endfor; ?>
-                                <span style="font-size:14px; font-weight:700; color:#333; margin-left:6px; line-height:22px;"><?= $existingReview['Review_Rating'] ?>/5</span>
+                                <span style="font-size:14px; font-weight:700; color:#333; margin-left:6px; line-height:22px;"><?= $existingReview['rating'] ?>/5</span>
                             </div>
-                            <?php if ($existingReview['Review_Comment']): ?>
+                            <?php if ($existingReview['comment']): ?>
                             <p style="font-size:13px; color:#555; margin:0; line-height:1.6;">
-                                &ldquo;<?= htmlspecialchars($existingReview['Review_Comment']) ?>&rdquo;
+                                &ldquo;<?= htmlspecialchars($existingReview['comment']) ?>&rdquo;
                             </p>
                             <?php endif; ?>
                             <div style="font-size:11px; color:#aaa; margin-top:6px;">
-                                Reviewed on <?= date('M d, Y', strtotime($existingReview['Review_CreatedAt'])) ?>
+                                Reviewed on <?= date('M d, Y', strtotime($existingReview['createdAt'])) ?>
                             </div>
                         </div>
                     </div>
@@ -392,7 +400,7 @@ $imgSeed = 'reddoorz' . $booking['Book_HotelId'];
 
                 <?php else: ?>
                     <p style="font-size:13px; color:var(--rd-muted); margin:0 0 14px;">
-                        How was your stay at <strong><?= htmlspecialchars($booking['Hotel_Name']) ?></strong>? Your review helps other guests.
+                        How was your stay at <strong><?= htmlspecialchars($booking['hotelName']) ?></strong>? Your review helps other guests.
                     </p>
                     <button type="button" class="btn-rd" style="padding:9px 22px; font-size:13px;"
                             data-bs-toggle="modal" data-bs-target="#rateModal">
@@ -439,7 +447,7 @@ $imgSeed = 'reddoorz' . $booking['Book_HotelId'];
     </div>
 </div>
 
-<?php if ($booking['Book_Status'] === 'completed' && !$existingReview): ?>
+<?php if ($booking['status'] === 'completed' && !$existingReview): ?>
 <!-- ===== Rate Hotel Modal ===== -->
 <div class="modal fade" id="rateModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
@@ -453,7 +461,7 @@ $imgSeed = 'reddoorz' . $booking['Book_HotelId'];
             <form method="POST">
                 <div class="modal-body" style="padding:24px;">
                     <p style="font-size:13px; color:var(--rd-muted); margin-bottom:20px;">
-                        How would you rate <strong><?= htmlspecialchars($booking['Hotel_Name']) ?></strong>?
+                        How would you rate <strong><?= htmlspecialchars($booking['hotelName']) ?></strong>?
                     </p>
 
                     <!-- Star picker -->
@@ -522,5 +530,3 @@ function paintStars(upTo, selected) {
 <?php endif; ?>
 
 <?php include "../layout/footer.php"; ?>
-
-

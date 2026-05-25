@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 require_once "../config/db.php";
 if (($_SESSION['role'] ?? '') === 'hotel_owner') {
     header("Location: /owner/dashboard.php"); exit();
@@ -13,45 +13,76 @@ $checkout = $_GET['checkout'] ?? '';
 
 if (!$hotelId) { header("Location: search.php"); exit(); }
 
-$hotel = $conn->query("SELECT * FROM Hotels WHERE Hotel_Id=$hotelId AND Hotel_Status='active' LIMIT 1")->fetch_assoc();
+$hotel = fs_find('hotels', [['id', '=', $hotelId], ['status', '=', 'active']]);
 if (!$hotel) { header("Location: search.php"); exit(); }
 
 $datesGiven = ($checkin && $checkout && $checkin < $checkout);
-$ciEsc = $datesGiven ? $conn->real_escape_string($checkin)  : '';
-$coEsc = $datesGiven ? $conn->real_escape_string($checkout) : '';
 
-if ($datesGiven) {
-    $rooms = $conn->query("
-        SELECT r.*,
-            (SELECT COUNT(*) FROM Bookings bk
-             WHERE bk.Book_RoomId   = r.Room_Id
-               AND bk.Book_Status  NOT IN ('cancelled')
-               AND bk.Book_CheckIn  < '$coEsc'
-               AND bk.Book_CheckOut > '$ciEsc'
-            ) AS ConflictCount
-        FROM Rooms r
-        WHERE r.Room_HotelId=$hotelId AND r.Room_Status='available'
-        ORDER BY ConflictCount ASC, r.Room_Price ASC
-    ");
-} else {
-    $rooms = $conn->query("
-        SELECT r.*, 0 AS ConflictCount
-        FROM Rooms r
-        WHERE r.Room_HotelId=$hotelId AND r.Room_Status='available'
-        ORDER BY r.Room_Price ASC
-    ");
+// Fetch all available rooms for this hotel
+$roomsRaw = fs_query('rooms', [['hotelId', '=', $hotelId], ['status', '=', 'available']], [['price', 'ASC']]);
+
+// If dates given, check conflicts for each room
+$rooms = [];
+foreach ($roomsRaw as $r) {
+    $conflictCount = 0;
+    if ($datesGiven) {
+        // Count active bookings that overlap the requested dates
+        $allBookingsForRoom = fs_query('bookings', [['roomId', '=', (int)$r['id']]]);
+        foreach ($allBookingsForRoom as $bk) {
+            if (($bk['status'] ?? '') === 'cancelled') continue;
+            if ($bk['checkIn'] < $checkout && $bk['checkOut'] > $checkin) {
+                $conflictCount++;
+            }
+        }
+    }
+    $r['ConflictCount'] = $conflictCount;
+    $rooms[] = $r;
 }
 
-$title = htmlspecialchars($hotel['Hotel_Name']);
+$title = htmlspecialchars($hotel['name']);
 include "../layout/layout.php";
 
 $imgSeed = 'reddoorz' . $hotelId;
+
+// Build amenities from Firestore field
+$allAmenityMap = [
+    'free_wifi'        => ['bi-wifi',             'Free WiFi'],
+    'air_conditioning' => ['bi-thermometer-half', 'Air Conditioning'],
+    'hot_shower'       => ['bi-droplet',          'Hot Shower'],
+    'cable_tv'         => ['bi-tv',               'Cable TV'],
+    'breakfast'        => ['bi-cup-hot',          'Breakfast Option'],
+    'parking'          => ['bi-p-square',         'Parking Available'],
+    'swimming_pool'    => ['bi-water',            'Swimming Pool'],
+    'gym'              => ['bi-bicycle',          'Fitness Center'],
+    'restaurant'       => ['bi-shop',             'Restaurant'],
+    'room_service'     => ['bi-bell',             'Room Service'],
+    'laundry'          => ['bi-bag',              'Laundry Service'],
+    'airport_shuttle'  => ['bi-bus-front',        'Airport Shuttle'],
+];
+if (!empty($hotel['amenities'])) {
+    $amenityKeys = explode(',', $hotel['amenities']);
+    $amenities   = array_filter($allAmenityMap, fn($k) => in_array($k, $amenityKeys), ARRAY_FILTER_USE_KEY);
+} else {
+    $amenities = array_slice($allAmenityMap, 0, 6, true);
+}
+
+// Fetch reviews
+$reviewsRaw  = fs_query('reviews', [['hotelId', '=', $hotelId]], [['createdAt', 'DESC']], 5);
+$reviewCount = fs_count('reviews', [['hotelId', '=', $hotelId]]);
+// Enrich reviews with customer name
+$reviewList = [];
+foreach ($reviewsRaw as $rv) {
+    $cust = fs_get('customers', (int)($rv['custId'] ?? 0));
+    $rv['custFName'] = $cust['firstName'] ?? '';
+    $rv['custLName']  = $cust['lastName']  ?? '';
+    $reviewList[] = $rv;
+}
 ?>
 
 <!-- ===== HOTEL HERO IMAGE ===== -->
 <div style="height:340px; position:relative; overflow:hidden; margin-top:0;">
     <img src="https://picsum.photos/seed/<?= $imgSeed ?>/1400/600"
-         alt="<?= htmlspecialchars($hotel['Hotel_Name']) ?>"
+         alt="<?= htmlspecialchars($hotel['name']) ?>"
          style="width:100%; height:100%; object-fit:cover;">
     <div style="position:absolute; inset:0; background:linear-gradient(to top, rgba(0,0,0,0.68) 0%, rgba(0,0,0,0.15) 60%, transparent 100%);"></div>
     <div style="position:absolute; bottom:28px; left:0; right:0;">
@@ -61,15 +92,15 @@ $imgSeed = 'reddoorz' . $hotelId;
                 <i class="bi bi-chevron-right" style="font-size:10px;"></i>
                 <a href="/hotels/search.php" style="color:rgba(255,255,255,0.6);">Hotels</a>
                 <i class="bi bi-chevron-right" style="font-size:10px;"></i>
-                <span style="color:rgba(255,255,255,0.9);"><?= htmlspecialchars($hotel['Hotel_Name']) ?></span>
+                <span style="color:rgba(255,255,255,0.9);"><?= htmlspecialchars($hotel['name']) ?></span>
             </div>
             <h1 style="font-size:clamp(22px,3.5vw,34px); font-weight:700; color:#fff; margin:0 0 6px; letter-spacing:-0.3px;">
-                <?= htmlspecialchars($hotel['Hotel_Name']) ?>
+                <?= htmlspecialchars($hotel['name']) ?>
             </h1>
             <div style="display:flex; align-items:center; gap:16px; flex-wrap:wrap;">
                 <span style="font-size:13px; color:rgba(255,255,255,0.78); display:flex; align-items:center; gap:5px;">
                     <i class="bi bi-geo-alt-fill" style="font-size:12px;"></i>
-                    <?= htmlspecialchars($hotel['Hotel_City']) ?>
+                    <?= htmlspecialchars($hotel['city']) ?>
                 </span>
                 <span style="
                     background:rgba(184,0,32,0.85); backdrop-filter:blur(4px);
@@ -78,7 +109,7 @@ $imgSeed = 'reddoorz' . $hotelId;
                     display:inline-flex; align-items:center; gap:5px;
                 ">
                     <i class="bi bi-star-fill" style="font-size:10px; color:#F5C842;"></i>
-                    <?= number_format($hotel['Hotel_Rating'], 1) ?> / 5.0
+                    <?= number_format($hotel['rating'] ?? 0, 1) ?> / 5.0
                 </span>
             </div>
         </div>
@@ -95,39 +126,15 @@ $imgSeed = 'reddoorz' . $hotelId;
             <div style="background:#fff; border-radius:14px; padding:24px; box-shadow:var(--rd-shadow); margin-bottom:20px; border:1px solid rgba(228,223,223,0.5);" data-aos="fade-up">
                 <h5 style="font-size:15px; font-weight:700; margin-bottom:12px;">About This Hotel</h5>
                 <p style="font-size:14px; color:#555; line-height:1.72; margin-bottom:14px;">
-                    <?= htmlspecialchars($hotel['Hotel_Description'] ?? 'A comfortable and affordable stay awaits you at this property.') ?>
+                    <?= htmlspecialchars($hotel['description'] ?? 'A comfortable and affordable stay awaits you at this property.') ?>
                 </p>
                 <div style="display:flex; align-items:center; gap:7px; font-size:13px; color:#555;">
                     <i class="bi bi-geo-alt" style="color:var(--rd-red);"></i>
-                    <?= htmlspecialchars($hotel['Hotel_Address'] ?? $hotel['Hotel_City']) ?>
+                    <?= htmlspecialchars($hotel['address'] ?? $hotel['city']) ?>
                 </div>
             </div>
 
             <!-- Amenities -->
-            <?php
-            $allAmenityMap = [
-                'free_wifi'        => ['bi-wifi',             'Free WiFi'],
-                'air_conditioning' => ['bi-thermometer-half', 'Air Conditioning'],
-                'hot_shower'       => ['bi-droplet',          'Hot Shower'],
-                'cable_tv'         => ['bi-tv',               'Cable TV'],
-                'breakfast'        => ['bi-cup-hot',          'Breakfast Option'],
-                'parking'          => ['bi-p-square',         'Parking Available'],
-                'swimming_pool'    => ['bi-water',            'Swimming Pool'],
-                'gym'              => ['bi-bicycle',          'Fitness Center'],
-                'restaurant'       => ['bi-shop',             'Restaurant'],
-                'room_service'     => ['bi-bell',             'Room Service'],
-                'laundry'          => ['bi-bag',              'Laundry Service'],
-                'airport_shuttle'  => ['bi-bus-front',        'Airport Shuttle'],
-            ];
-            $hasAmenCol = $conn->query("SHOW COLUMNS FROM Hotels LIKE 'Hotel_Amenities'")->num_rows > 0;
-            if ($hasAmenCol && !empty($hotel['Hotel_Amenities'])) {
-                $amenityKeys = explode(',', $hotel['Hotel_Amenities']);
-                $amenities   = array_filter($allAmenityMap, fn($k) => in_array($k, $amenityKeys), ARRAY_FILTER_USE_KEY);
-            } else {
-                // Default set shown before migration or if none selected
-                $amenities = array_slice($allAmenityMap, 0, 6, true);
-            }
-            ?>
             <?php if (!empty($amenities)): ?>
             <div style="background:#fff; border-radius:14px; padding:24px; box-shadow:var(--rd-shadow); margin-bottom:20px; border:1px solid rgba(228,223,223,0.5);" data-aos="fade-up">
                 <h5 style="font-size:15px; font-weight:700; margin-bottom:18px;">Hotel Amenities</h5>
@@ -154,13 +161,13 @@ $imgSeed = 'reddoorz' . $hotelId;
             <div style="background:#fff; border-radius:14px; padding:24px; box-shadow:var(--rd-shadow); border:1px solid rgba(228,223,223,0.5);" data-aos="fade-up">
                 <h5 style="font-size:15px; font-weight:700; margin-bottom:20px;">Available Rooms</h5>
 
-                <?php if ($rooms->num_rows === 0): ?>
+                <?php if (empty($rooms)): ?>
                     <div style="text-align:center; padding:40px 0; color:var(--rd-muted); font-size:14px;">
                         <i class="bi bi-door-closed" style="font-size:40px; display:block; margin-bottom:12px; color:#ddd;"></i>
                         No rooms available at this time.
                     </div>
                 <?php else: ?>
-                    <?php while ($room = $rooms->fetch_assoc()): ?>
+                    <?php foreach ($rooms as $room): ?>
                     <div style="
                         border:1.5px solid var(--rd-border); border-radius:12px;
                         padding:18px 20px; margin-bottom:14px;
@@ -172,14 +179,14 @@ $imgSeed = 'reddoorz' . $hotelId;
                     onmouseout="this.style.borderColor='var(--rd-border)';this.style.boxShadow='none'">
                         <div style="flex:1; min-width:180px;">
                             <div style="font-size:15px; font-weight:700; margin-bottom:4px;">
-                                <?= htmlspecialchars($room['Room_Type']) ?>
+                                <?= htmlspecialchars($room['type']) ?>
                             </div>
                             <div style="font-size:13px; color:var(--rd-muted); margin-bottom:8px;">
-                                <?= htmlspecialchars($room['Room_Description'] ?? '') ?>
+                                <?= htmlspecialchars($room['description'] ?? '') ?>
                             </div>
                             <div style="display:flex; gap:12px; flex-wrap:wrap;">
                                 <span style="font-size:12px; color:#666; display:flex; align-items:center; gap:4px;">
-                                    <i class="bi bi-people" style="color:var(--rd-red);"></i>Up to <?= $room['Room_Capacity'] ?> guests
+                                    <i class="bi bi-people" style="color:var(--rd-red);"></i>Up to <?= $room['capacity'] ?> guests
                                 </span>
                                 <span style="font-size:12px; color:#666; display:flex; align-items:center; gap:4px;">
                                     <i class="bi bi-wifi" style="color:var(--rd-red);"></i>Free WiFi
@@ -190,41 +197,25 @@ $imgSeed = 'reddoorz' . $hotelId;
                             </div>
                         </div>
                         <div style="text-align:right; min-width:130px;">
-                            <div class="price-tag">&#8369;<?= number_format($room['Room_Price']) ?></div>
+                            <div class="price-tag">&#8369;<?= number_format($room['price']) ?></div>
                             <div style="font-size:11px; color:#bbb; margin-bottom:10px;">per night</div>
                             <?php if ($datesGiven && $room['ConflictCount'] > 0): ?>
                                 <span style="display:inline-flex; align-items:center; gap:5px; background:#FEE2E2; color:#991B1B; font-size:11px; font-weight:700; border-radius:6px; padding:5px 12px;">
                                     <i class="bi bi-calendar-x"></i> Not available
                                 </span>
                             <?php else: ?>
-                                <a href="/hotels/book.php?room=<?= $room['Room_Id'] ?>&hotel=<?= $hotelId ?><?= $checkin ? '&checkin='.urlencode($checkin) : '' ?><?= $checkout ? '&checkout='.urlencode($checkout) : '' ?>"
+                                <a href="/hotels/book.php?room=<?= $room['id'] ?>&hotel=<?= $hotelId ?><?= $checkin ? '&checkin='.urlencode($checkin) : '' ?><?= $checkout ? '&checkout='.urlencode($checkout) : '' ?>"
                                    class="btn-rd" style="padding:8px 20px; font-size:13px; border-radius:8px;">
                                     Book Room
                                 </a>
                             <?php endif; ?>
                         </div>
                     </div>
-                    <?php endwhile; ?>
+                    <?php endforeach; ?>
                 <?php endif; ?>
             </div>
 
             <!-- Guest Reviews -->
-            <?php
-            $hasReviewsTable = $conn->query("SHOW TABLES LIKE 'Reviews'")->num_rows > 0;
-            $reviews = null;
-            $reviewCount = 0;
-            if ($hasReviewsTable) {
-                $reviewCount = (int) $conn->query("SELECT COUNT(*) AS cnt FROM Reviews WHERE Review_HotelId=$hotelId")->fetch_assoc()['cnt'];
-                $reviews = $conn->query("
-                    SELECT rv.*, c.Cust_FName, c.Cust_LName
-                    FROM Reviews rv
-                    JOIN Customers c ON c.Cust_Id = rv.Review_CustId
-                    WHERE rv.Review_HotelId = $hotelId
-                    ORDER BY rv.Review_CreatedAt DESC
-                    LIMIT 5
-                ");
-            }
-            ?>
             <?php if ($reviewCount > 0): ?>
             <div style="background:#fff; border-radius:14px; padding:24px; box-shadow:var(--rd-shadow); margin-top:20px; border:1px solid rgba(228,223,223,0.5);" data-aos="fade-up">
                 <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; flex-wrap:wrap; gap:8px;">
@@ -232,43 +223,43 @@ $imgSeed = 'reddoorz' . $hotelId;
                     <div style="display:flex; align-items:center; gap:8px;">
                         <div style="display:flex; gap:2px;">
                             <?php for ($s = 1; $s <= 5; $s++): ?>
-                            <i class="bi bi-star<?= $s <= round($hotel['Hotel_Rating']) ? '-fill' : '' ?>"
-                               style="font-size:14px; color:<?= $s <= round($hotel['Hotel_Rating']) ? '#C98A00' : '#DDD' ?>;"></i>
+                            <i class="bi bi-star<?= $s <= round($hotel['rating'] ?? 0) ? '-fill' : '' ?>"
+                               style="font-size:14px; color:<?= $s <= round($hotel['rating'] ?? 0) ? '#C98A00' : '#DDD' ?>;"></i>
                             <?php endfor; ?>
                         </div>
-                        <span style="font-size:14px; font-weight:700; color:#333;"><?= number_format($hotel['Hotel_Rating'], 1) ?></span>
+                        <span style="font-size:14px; font-weight:700; color:#333;"><?= number_format($hotel['rating'] ?? 0, 1) ?></span>
                         <span style="font-size:12px; color:#aaa;">(<?= $reviewCount ?> review<?= $reviewCount != 1 ? 's' : '' ?>)</span>
                     </div>
                 </div>
                 <div style="display:flex; flex-direction:column; gap:16px;">
-                <?php while ($rv = $reviews->fetch_assoc()): ?>
+                <?php foreach ($reviewList as $rv): ?>
                 <div style="border-bottom:1px solid var(--rd-border); padding-bottom:16px;">
                     <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:6px; flex-wrap:wrap; gap:6px;">
                         <div style="display:flex; align-items:center; gap:9px;">
                             <div style="width:34px; height:34px; border-radius:50%; background:var(--rd-red-pale); color:var(--rd-red); display:flex; align-items:center; justify-content:center; font-size:14px; font-weight:700; flex-shrink:0;">
-                                <?= strtoupper(substr($rv['Cust_FName'], 0, 1)) ?>
+                                <?= strtoupper(substr($rv['custFName'], 0, 1)) ?>
                             </div>
                             <div>
                                 <div style="font-size:13px; font-weight:700; color:#333;">
-                                    <?= htmlspecialchars($rv['Cust_FName'] . ' ' . substr($rv['Cust_LName'], 0, 1) . '.') ?>
+                                    <?= htmlspecialchars($rv['custFName'] . ' ' . substr($rv['custLName'], 0, 1) . '.') ?>
                                 </div>
-                                <div style="font-size:11px; color:#aaa;"><?= date('M d, Y', strtotime($rv['Review_CreatedAt'])) ?></div>
+                                <div style="font-size:11px; color:#aaa;"><?= isset($rv['createdAt']) ? date('M d, Y', strtotime($rv['createdAt'])) : '' ?></div>
                             </div>
                         </div>
                         <div style="display:flex; gap:2px;">
                             <?php for ($s = 1; $s <= 5; $s++): ?>
-                            <i class="bi bi-star<?= $s <= $rv['Review_Rating'] ? '-fill' : '' ?>"
-                               style="font-size:13px; color:<?= $s <= $rv['Review_Rating'] ? '#C98A00' : '#DDD' ?>;"></i>
+                            <i class="bi bi-star<?= $s <= ($rv['rating'] ?? 0) ? '-fill' : '' ?>"
+                               style="font-size:13px; color:<?= $s <= ($rv['rating'] ?? 0) ? '#C98A00' : '#DDD' ?>;"></i>
                             <?php endfor; ?>
                         </div>
                     </div>
-                    <?php if ($rv['Review_Comment']): ?>
+                    <?php if (!empty($rv['comment'])): ?>
                     <p style="font-size:13px; color:#555; margin:0; line-height:1.65; padding-left:43px;">
-                        <?= htmlspecialchars($rv['Review_Comment']) ?>
+                        <?= htmlspecialchars($rv['comment']) ?>
                     </p>
                     <?php endif; ?>
                 </div>
-                <?php endwhile; ?>
+                <?php endforeach; ?>
                 </div>
             </div>
             <?php endif; ?>
@@ -310,15 +301,15 @@ $imgSeed = 'reddoorz' . $hotelId;
                 <div style="display:flex; flex-direction:column; gap:10px; font-size:13px; color:#555;">
                     <div style="display:flex; align-items:center; gap:9px;">
                         <i class="bi bi-geo-alt-fill" style="color:var(--rd-red); width:16px;"></i>
-                        <?= htmlspecialchars($hotel['Hotel_City']) ?>
+                        <?= htmlspecialchars($hotel['city']) ?>
                     </div>
                     <div style="display:flex; align-items:center; gap:9px;">
                         <i class="bi bi-star-fill" style="color:#C98A00; width:16px;"></i>
-                        <?= $hotel['Hotel_Rating'] ?> Guest Rating
+                        <?= $hotel['rating'] ?? 0 ?> Guest Rating
                     </div>
                     <div style="display:flex; align-items:center; gap:9px;">
                         <i class="bi bi-door-closed" style="color:var(--rd-red); width:16px;"></i>
-                        <?= $rooms->num_rows ?> room type<?= $rooms->num_rows != 1 ? 's' : '' ?> available
+                        <?= count($rooms) ?> room type<?= count($rooms) != 1 ? 's' : '' ?> available
                     </div>
                 </div>
 
