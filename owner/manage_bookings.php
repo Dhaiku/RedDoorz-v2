@@ -16,17 +16,41 @@ if (isset($_POST['update_status'])) {
     $newStatus = $_POST['new_status'] ?? '';
     $allowed   = ['checked_in', 'completed', 'cancelled'];
 
+    $allowed = ['confirmed', 'checked_in', 'completed', 'cancelled'];
+
     if (in_array($newStatus, $allowed)) {
         // Verify this booking belongs to owner's hotel
-        $check = $conn->query("SELECT Book_Id FROM Bookings WHERE Book_Id=$bookId AND Book_HotelId=$hotelId LIMIT 1");
-        if ($check->num_rows > 0) {
+        $bRow = $conn->query("SELECT b.*, h.Hotel_OwnerId FROM Bookings b JOIN Hotels h ON h.Hotel_Id=b.Book_HotelId WHERE b.Book_Id=$bookId AND b.Book_HotelId=$hotelId LIMIT 1")->fetch_assoc();
+        if ($bRow) {
             $conn->query("UPDATE Bookings SET Book_Status='$newStatus' WHERE Book_Id=$bookId");
+
+            $hasEarningsTable = $conn->query("SHOW TABLES LIKE 'Earnings'")->num_rows > 0;
+
+            if ($newStatus === 'confirmed' && $bRow['Book_Status'] === 'pending') {
+                // Walk-in payment collected — create Earnings record now
+                if ($hasEarningsTable) {
+                    $alreadyExists = $conn->query("SELECT Earn_Id FROM Earnings WHERE Earn_BookId=$bookId LIMIT 1")->num_rows > 0;
+                    if (!$alreadyExists) {
+                        $total       = (float) $bRow['Book_TotalPrice'];
+                        $ownerShare  = round($total * 0.85, 2);
+                        $platformFee = round($total * 0.15, 2);
+                        $earnOwnerId = $bRow['Hotel_OwnerId'] ? (int)$bRow['Hotel_OwnerId'] : 'NULL';
+                        $conn->query("
+                            INSERT INTO Earnings
+                                (Earn_BookId, Earn_HotelId, Earn_OwnerId, Earn_TotalAmount, Earn_OwnerShare, Earn_PlatformFee, Earn_Status)
+                            VALUES
+                                ($bookId, $hotelId, $earnOwnerId, $total, $ownerShare, $platformFee, 'pending')
+                        ");
+                    }
+                }
+            }
+
             if ($newStatus === 'cancelled') {
-                $hasEarningsTable = $conn->query("SHOW TABLES LIKE 'Earnings'")->num_rows > 0;
                 if ($hasEarningsTable) {
                     $conn->query("UPDATE Earnings SET Earn_Status='voided' WHERE Earn_BookId=$bookId");
                 }
             }
+
             $updateMsg = 'Booking #' . str_pad($bookId,4,'0',STR_PAD_LEFT) . ' updated.';
         }
     }

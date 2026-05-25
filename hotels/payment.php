@@ -99,24 +99,29 @@ if (isset($_POST['pay'])) {
                 ");
             }
 
-            // Confirm the booking
-            $conn->query("UPDATE Bookings SET Book_Status='confirmed' WHERE Book_Id=$bookingId");
+            if ($method === 'pay_at_hotel') {
+                // Walk-in: keep booking as pending — customer has not paid yet.
+                // Hotel owner will confirm once payment is collected at the front desk.
+                $conn->query("UPDATE Bookings SET Book_Status='pending' WHERE Book_Id=$bookingId");
+                // No Earnings record yet — created when owner confirms payment.
+            } else {
+                // Online payment: confirm immediately and record earnings.
+                $conn->query("UPDATE Bookings SET Book_Status='confirmed' WHERE Book_Id=$bookingId");
 
-            // Insert Earnings record (85% owner / 15% platform) if table exists
-            $hasEarningsTable = $conn->query("SHOW TABLES LIKE 'Earnings'")->num_rows > 0;
-            if ($hasEarningsTable) {
-                $ownerShare  = round($total * 0.85, 2);
-                $platformFee = round($total * 0.15, 2);
-                // Get hotel_id and owner_id for this booking
-                $bInfo = $conn->query("SELECT b.Book_HotelId, h.Hotel_OwnerId FROM Bookings b JOIN Hotels h ON h.Hotel_Id=b.Book_HotelId WHERE b.Book_Id=$bookingId LIMIT 1")->fetch_assoc();
-                $earnHotelId = (int)($bInfo['Book_HotelId'] ?? 0);
-                $earnOwnerId = $bInfo['Hotel_OwnerId'] ? (int)$bInfo['Hotel_OwnerId'] : 'NULL';
-                $conn->query("
-                    INSERT INTO Earnings
-                        (Earn_BookId, Earn_HotelId, Earn_OwnerId, Earn_TotalAmount, Earn_OwnerShare, Earn_PlatformFee, Earn_Status)
-                    VALUES
-                        ($bookingId, $earnHotelId, $earnOwnerId, $total, $ownerShare, $platformFee, 'pending')
-                ");
+                $hasEarningsTable = $conn->query("SHOW TABLES LIKE 'Earnings'")->num_rows > 0;
+                if ($hasEarningsTable) {
+                    $ownerShare  = round($total * 0.85, 2);
+                    $platformFee = round($total * 0.15, 2);
+                    $bInfo = $conn->query("SELECT b.Book_HotelId, h.Hotel_OwnerId FROM Bookings b JOIN Hotels h ON h.Hotel_Id=b.Book_HotelId WHERE b.Book_Id=$bookingId LIMIT 1")->fetch_assoc();
+                    $earnHotelId = (int)($bInfo['Book_HotelId'] ?? 0);
+                    $earnOwnerId = $bInfo['Hotel_OwnerId'] ? (int)$bInfo['Hotel_OwnerId'] : 'NULL';
+                    $conn->query("
+                        INSERT INTO Earnings
+                            (Earn_BookId, Earn_HotelId, Earn_OwnerId, Earn_TotalAmount, Earn_OwnerShare, Earn_PlatformFee, Earn_Status)
+                        VALUES
+                            ($bookingId, $earnHotelId, $earnOwnerId, $total, $ownerShare, $platformFee, 'pending')
+                    ");
+                }
             }
 
             header("Location: /customer/booking_detail.php?id=$bookingId&paid=1");
@@ -406,7 +411,7 @@ $imgSeed = 'reddoorz' . $booking['Book_HotelId'];
 
                     <!-- Submit -->
                     <div class="mt-4">
-                        <button type="submit" name="pay" class="btn-rd w-100"
+                        <button type="submit" name="pay" id="submitBtn" class="btn-rd w-100"
                                 style="justify-content:center; padding:14px; font-size:15px;">
                             <i class="bi bi-check-circle me-1"></i>
                             Confirm Payment &mdash; &#8369;<?= number_format($total) ?>
@@ -504,6 +509,14 @@ function selectMethod(selected) {
             radio.checked = false;
         }
     });
+
+    // Update submit button label for walk-in vs online payment
+    const btn = document.getElementById('submitBtn');
+    if (selected === 'pay_at_hotel') {
+        btn.innerHTML = '<i class="bi bi-building me-1"></i> Reserve Room &mdash; Pay at Hotel';
+    } else {
+        btn.innerHTML = '<i class="bi bi-check-circle me-1"></i> Confirm Payment &mdash; &#8369;<?= number_format($total) ?>';
+    }
 }
 
 // Restore selection on page reload (after POST error)
