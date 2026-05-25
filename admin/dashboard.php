@@ -14,7 +14,15 @@ $pendingPayments= fs_count('bookings', [['status', '=', 'pending']]);
 
 // Revenue: sum totalPrice for confirmed/completed bookings
 $confirmedBookings = fs_query('bookings', [['status', 'in', ['confirmed','completed']]]);
-$totalRevenue = array_sum(array_column($confirmedBookings, 'totalPrice'));
+$confirmedCount    = count($confirmedBookings);
+$totalRevenue      = array_sum(array_column($confirmedBookings, 'totalPrice'));
+
+$cancelledCount  = fs_count('bookings', [['status', '=', 'cancelled']]);
+$cancelRate      = $totalBookings > 0 ? round(($cancelledCount / $totalBookings) * 100, 1) : 0;
+
+$allHotelsRated  = fs_query('hotels', [['status', '=', 'active']]);
+$ratings         = array_filter(array_column($allHotelsRated, 'rating'));
+$avgRating       = count($ratings) ? round(array_sum($ratings) / count($ratings), 1) : 0;
 
 $pendingPayouts  = fs_count('payoutrequests', [['status', '=', 'pending']]);
 $totalCommission = fs_sum('earnings', 'platformFee', [['status', '!=', 'voided']]);
@@ -45,112 +53,163 @@ include "../layout/layout.php";
 
     <div style="flex:1; padding:36px 32px; overflow:visible;">
 
-        <div class="page-header">
-            <h1>Dashboard</h1>
-            <p>Overview of your hotel booking platform.</p>
+        <!-- Top bar -->
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:24px; flex-wrap:wrap; gap:12px;">
+            <h1 style="font-size:22px; font-weight:700; margin:0; letter-spacing:-0.2px;">
+                Dashboard <span style="color:var(--rd-red);">Overview</span>
+            </h1>
+            <div style="display:flex; align-items:center; gap:16px;">
+                <div style="display:flex; align-items:center; gap:6px; font-size:13px; color:#888; font-weight:500;">
+                    <i class="bi bi-calendar3"></i> <?= date('D, M j, Y') ?>
+                </div>
+                <div style="position:relative; width:34px; height:34px; background:#F4F6FA; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:17px; color:#555; cursor:pointer;">
+                    <i class="bi bi-bell"></i>
+                    <?php if ($pendingPayments > 0): ?>
+                        <span style="position:absolute; top:6px; right:7px; width:7px; height:7px; background:var(--rd-red); border-radius:50%; border:1.5px solid #fff;"></span>
+                    <?php endif; ?>
+                </div>
+            </div>
         </div>
 
-        <!-- Stats -->
-        <div class="row g-4 mb-4">
-            <div class="col-sm-6 col-xl-2" style="flex:0 0 calc(16.66% - 12px); min-width:140px;">
-                <div class="stat-card">
+        <!-- Pending payments alert -->
+        <?php if ($pendingPayments > 0): ?>
+        <div style="display:flex; align-items:center; gap:10px; background:#FFF5F5; border:1px solid #FECACA; border-radius:10px; padding:13px 18px; font-size:13.5px; color:#7F1D1D; margin-bottom:24px;">
+            <i class="bi bi-exclamation-circle-fill" style="font-size:16px; color:#DC2626; flex-shrink:0;"></i>
+            <span>
+                <strong><?= $pendingPayments ?> pending payment<?= $pendingPayments > 1 ? 's' : '' ?></strong>
+                require your attention.
+                <a href="/admin/manage_bookings.php?status=pending" style="color:var(--rd-red); font-weight:700; text-decoration:none; margin-left:4px;">Review now &rarr;</a>
+            </span>
+        </div>
+        <?php endif; ?>
+
+        <!-- Stats — Row 1: 4 cards -->
+        <div class="row g-3 mb-3">
+            <!-- Total Bookings -->
+            <div class="col-sm-6 col-lg-3">
+                <div class="stat-card" style="border-left:4px solid #16A34A;">
                     <div style="display:flex; justify-content:space-between; align-items:flex-start;">
                         <div>
-                            <div class="stat-value"><?= $totalHotels ?></div>
-                            <div class="stat-label">Active Hotels</div>
+                            <div class="stat-label" style="text-transform:uppercase; font-size:11px; font-weight:700; letter-spacing:0.6px; margin-bottom:6px;">Total Bookings</div>
+                            <div class="stat-value"><?= $totalBookings ?></div>
+                            <div style="font-size:12px; color:#16A34A; font-weight:600; margin-top:4px;">
+                                <i class="bi bi-arrow-up"></i> <?= $confirmedCount ?> confirmed
+                            </div>
                         </div>
-                        <div class="stat-icon" style="background:var(--rd-red-pale); color:var(--rd-red);">
+                        <div class="stat-icon" style="background:#F0FDF4; color:#16A34A;">
+                            <i class="bi bi-calendar2-check"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <!-- Total Revenue -->
+            <div class="col-sm-6 col-lg-3">
+                <div class="stat-card" style="border-left:4px solid #2563EB;">
+                    <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                        <div>
+                            <div class="stat-label" style="text-transform:uppercase; font-size:11px; font-weight:700; letter-spacing:0.6px; margin-bottom:6px;">Total Revenue</div>
+                            <div class="stat-value" style="font-size:20px;">&#8369;<?= number_format($totalRevenue) ?></div>
+                            <div style="font-size:12px; color:#9CA3AF; margin-top:4px;">From paid transactions</div>
+                        </div>
+                        <div class="stat-icon" style="background:#EFF6FF; color:#2563EB;">
+                            <i class="bi bi-currency-dollar"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <!-- Partner Hotels -->
+            <div class="col-sm-6 col-lg-3">
+                <div class="stat-card" style="border-left:4px solid #7C3AED;">
+                    <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                        <div>
+                            <div class="stat-label" style="text-transform:uppercase; font-size:11px; font-weight:700; letter-spacing:0.6px; margin-bottom:6px;">Partner Hotels</div>
+                            <div class="stat-value"><?= $totalHotels ?></div>
+                            <div style="font-size:12px; color:#9CA3AF; margin-top:4px;">Active properties</div>
+                        </div>
+                        <div class="stat-icon" style="background:#F5F3FF; color:#7C3AED;">
                             <i class="bi bi-building"></i>
                         </div>
                     </div>
                 </div>
             </div>
-            <div class="col-sm-6 col-xl-2" style="flex:0 0 calc(16.66% - 12px); min-width:140px;">
-                <div class="stat-card">
+            <!-- Registered Guests -->
+            <div class="col-sm-6 col-lg-3">
+                <div class="stat-card" style="border-left:4px solid #E11D48;">
                     <div style="display:flex; justify-content:space-between; align-items:flex-start;">
                         <div>
-                            <div class="stat-value"><?= $totalRooms ?></div>
-                            <div class="stat-label">Available Rooms</div>
-                        </div>
-                        <div class="stat-icon" style="background:#EFF6FF; color:#2563EB;">
-                            <i class="bi bi-door-closed"></i>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-sm-6 col-xl-2" style="flex:0 0 calc(16.66% - 12px); min-width:140px;">
-                <div class="stat-card">
-                    <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-                        <div>
+                            <div class="stat-label" style="text-transform:uppercase; font-size:11px; font-weight:700; letter-spacing:0.6px; margin-bottom:6px;">Registered Guests</div>
                             <div class="stat-value"><?= $totalCustomers ?></div>
-                            <div class="stat-label">Customers</div>
+                            <div style="font-size:12px; color:#9CA3AF; margin-top:4px;">Platform accounts</div>
                         </div>
-                        <div class="stat-icon" style="background:#F5F3FF; color:#7C3AED;">
+                        <div class="stat-icon" style="background:#FFF1F2; color:#E11D48;">
                             <i class="bi bi-people"></i>
                         </div>
                     </div>
                 </div>
             </div>
-            <div class="col-sm-6 col-xl-2" style="flex:0 0 calc(16.66% - 12px); min-width:140px;">
-                <div class="stat-card">
+        </div>
+
+        <!-- Stats — Row 2: 4 cards -->
+        <div class="row g-3 mb-4">
+            <!-- Pending Payments -->
+            <div class="col-sm-6 col-lg-3">
+                <div class="stat-card" style="border-left:4px solid #D97706;">
                     <div style="display:flex; justify-content:space-between; align-items:flex-start;">
                         <div>
-                            <div class="stat-value"><?= $totalBookings ?></div>
-                            <div class="stat-label">Total Bookings</div>
-                        </div>
-                        <div class="stat-icon" style="background:#F0FFF4; color:#16A34A;">
-                            <i class="bi bi-calendar-check"></i>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-sm-6 col-xl-2" style="flex:0 0 calc(16.66% - 12px); min-width:140px;">
-                <div class="stat-card">
-                    <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-                        <div>
+                            <div class="stat-label" style="text-transform:uppercase; font-size:11px; font-weight:700; letter-spacing:0.6px; margin-bottom:6px;">Pending Payments</div>
                             <div class="stat-value"><?= $pendingPayments ?></div>
-                            <div class="stat-label">Pending Payments</div>
-                        </div>
-                        <div class="stat-icon" style="background:#FFF8E1; color:#92400E;">
-                            <i class="bi bi-clock-history"></i>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-sm-6 col-xl-2" style="flex:0 0 calc(16.66% - 12px); min-width:140px;">
-                <div class="stat-card">
-                    <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-                        <div>
-                            <div class="stat-value" style="font-size:18px;">₱<?= number_format($totalRevenue) ?></div>
-                            <div class="stat-label">Revenue</div>
+                            <div style="font-size:12px; color:<?= $pendingPayments > 0 ? '#DC2626' : '#16A34A' ?>; font-weight:600; margin-top:4px;">
+                                <?= $pendingPayments > 0 ? 'Action required' : 'All clear' ?>
+                            </div>
                         </div>
                         <div class="stat-icon" style="background:#FFFBEB; color:#D97706;">
-                            <i class="bi bi-cash-coin"></i>
+                            <i class="bi bi-hourglass-split"></i>
                         </div>
                     </div>
                 </div>
             </div>
-            <div class="col-sm-6 col-xl-2" style="flex:0 0 calc(16.66% - 12px); min-width:140px;">
-                <div class="stat-card">
+            <!-- Cancellation Rate -->
+            <div class="col-sm-6 col-lg-3">
+                <div class="stat-card" style="border-left:4px solid #DC2626;">
                     <div style="display:flex; justify-content:space-between; align-items:flex-start;">
                         <div>
-                            <div class="stat-value"><?= $pendingPayouts ?></div>
-                            <div class="stat-label">Pending Payouts</div>
+                            <div class="stat-label" style="text-transform:uppercase; font-size:11px; font-weight:700; letter-spacing:0.6px; margin-bottom:6px;">Cancellation Rate</div>
+                            <div class="stat-value"><?= $cancelRate ?>%</div>
+                            <div style="font-size:12px; color:#9CA3AF; margin-top:4px;"><?= $cancelledCount ?> cancelled bookings</div>
                         </div>
-                        <div class="stat-icon" style="background:#FEF9C3; color:#A16207;">
-                            <i class="bi bi-send"></i>
+                        <div class="stat-icon" style="background:#FEF2F2; color:#DC2626;">
+                            <i class="bi bi-x-circle"></i>
                         </div>
                     </div>
                 </div>
             </div>
-            <div class="col-sm-6 col-xl-2" style="flex:0 0 calc(16.66% - 12px); min-width:140px;">
-                <div class="stat-card">
+            <!-- Avg. Rating -->
+            <div class="col-sm-6 col-lg-3">
+                <div class="stat-card" style="border-left:4px solid #EA580C;">
                     <div style="display:flex; justify-content:space-between; align-items:flex-start;">
                         <div>
-                            <div class="stat-value" style="font-size:18px;">₱<?= number_format($totalCommission) ?></div>
-                            <div class="stat-label">Platform Commission</div>
+                            <div class="stat-label" style="text-transform:uppercase; font-size:11px; font-weight:700; letter-spacing:0.6px; margin-bottom:6px;">Avg. Rating</div>
+                            <div class="stat-value"><?= $avgRating ?></div>
+                            <div style="font-size:12px; color:#9CA3AF; margin-top:4px;">Platform-wide guest score</div>
                         </div>
-                        <div class="stat-icon" style="background:var(--rd-red-pale); color:var(--rd-red);">
+                        <div class="stat-icon" style="background:#FFF7ED; color:#EA580C;">
+                            <i class="bi bi-star-fill"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <!-- Confirmed Bookings -->
+            <div class="col-sm-6 col-lg-3">
+                <div class="stat-card" style="border-left:4px solid #0D9488;">
+                    <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                        <div>
+                            <div class="stat-label" style="text-transform:uppercase; font-size:11px; font-weight:700; letter-spacing:0.6px; margin-bottom:6px;">Confirmed Bookings</div>
+                            <div class="stat-value"><?= $confirmedCount ?></div>
+                            <div style="font-size:12px; color:#9CA3AF; margin-top:4px;">
+                                <?= $totalBookings > 0 ? round(($confirmedCount / $totalBookings) * 100) : 0 ?>% of total
+                            </div>
+                        </div>
+                        <div class="stat-icon" style="background:#F0FDFA; color:#0D9488;">
                             <i class="bi bi-graph-up-arrow"></i>
                         </div>
                     </div>
