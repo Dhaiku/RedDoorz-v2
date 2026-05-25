@@ -65,7 +65,6 @@ include "../layout/layout.php";
     flex: 0 0 46%;
     position: relative;
     overflow: hidden;
-    min-height: 100%;
 }
 
 .auth-panel-img img {
@@ -73,7 +72,9 @@ include "../layout/layout.php";
 }
 
 .auth-panel-img .img-overlay {
-    position: absolute; inset: 0;
+    position: relative;
+    z-index: 1;
+    min-height: calc(100dvh - 64px);
     background: linear-gradient(160deg, rgba(100,0,12,0.72) 0%, rgba(184,0,32,0.55) 100%);
     display: flex; flex-direction: column; justify-content: flex-end; padding: 48px;
 }
