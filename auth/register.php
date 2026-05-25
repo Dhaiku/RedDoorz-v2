@@ -57,6 +57,7 @@ include "../layout/layout.php";
     flex: 1;
     display: flex;
     align-items: stretch;
+    min-height: calc(100dvh - 64px);
 }
 
 .auth-panel-img {
