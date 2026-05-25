@@ -211,6 +211,12 @@ function _fs_op(string $op): string {
  * Run a structured query.
  * $wheres  = [[$field, $op, $value], ...]
  * $orderBy = [[$field, 'asc'|'desc'], ...]
+ *
+ * When both $wheres and $orderBy are present Firestore requires a composite
+ * index for every combination.  To avoid that maintenance burden we send the
+ * orderBy to Firestore only when there are NO where-filters; otherwise we
+ * fetch all matching docs and sort them in PHP.  The $limit is applied after
+ * the PHP sort so it is still respected.
  */
 function _fs_run_query(string $col, array $wheres = [], array $orderBy = [], int $limit = 0): array {
     $filters = [];
@@ -228,15 +234,20 @@ function _fs_run_query(string $col, array $wheres = [], array $orderBy = [], int
         default => ['compositeFilter' => ['op' => 'AND', 'filters' => $filters]],
     };
 
+    // Push orderBy to Firestore only when there is no where-clause (avoids
+    // composite-index requirement).  With a where-clause we sort in PHP below.
+    $fsOrderBy   = ($where === null) ? $orderBy : [];
+    $fsLimit     = ($where === null) ? $limit   : 0; // apply limit after PHP sort
+
     $structured = ['from' => [['collectionId' => $col]]];
-    if ($where)  $structured['where']   = $where;
-    foreach ($orderBy as [$f, $dir]) {
+    if ($where)  $structured['where'] = $where;
+    foreach ($fsOrderBy as [$f, $dir]) {
         $structured['orderBy'][] = [
             'field'     => ['fieldPath' => $f],
             'direction' => strtoupper($dir) === 'DESC' ? 'DESCENDING' : 'ASCENDING',
         ];
     }
-    if ($limit > 0) $structured['limit'] = $limit;
+    if ($fsLimit > 0) $structured['limit'] = $fsLimit;
 
     $url  = _fs_query_url();
     $resp = _fs_req('POST', $url, ['structuredQuery' => $structured]);
@@ -248,6 +259,29 @@ function _fs_run_query(string $col, array $wheres = [], array $orderBy = [], int
             if ($arr !== null) $docs[] = $arr;
         }
     }
+
+    // PHP-side sort when we have a where-clause
+    if ($where !== null && !empty($orderBy)) {
+        usort($docs, function($a, $b) use ($orderBy) {
+            foreach ($orderBy as [$field, $dir]) {
+                $av = $a[$field] ?? null;
+                $bv = $b[$field] ?? null;
+                if ($av === $bv) continue;
+                $cmp = (is_numeric($av) && is_numeric($bv))
+                    ? ($av <=> $bv)
+                    : strcmp((string)$av, (string)$bv);
+                if (strtoupper($dir) === 'DESC') $cmp = -$cmp;
+                return $cmp;
+            }
+            return 0;
+        });
+    }
+
+    // Apply limit after PHP sort
+    if ($limit > 0 && count($docs) > $limit) {
+        $docs = array_slice($docs, 0, $limit);
+    }
+
     return $docs;
 }
 

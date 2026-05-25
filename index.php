@@ -6,6 +6,32 @@ include "layout/layout.php";
 // Featured hotels — top 6 by rating
 $featured = fs_query('hotels', [['status', '=', 'active']], [['rating', 'DESC']], 6);
 
+// Hotels by location — count active hotels per city
+$_allActive = fs_query('hotels', [['status', '=', 'active']]);
+$_cityCount = [];
+foreach ($_allActive as $_h) {
+    $c = $_h['city'] ?? '';
+    if ($c) $_cityCount[$c] = ($_cityCount[$c] ?? 0) + 1;
+}
+// Featured cities with images (Unsplash photo IDs)
+$_featuredCities = [
+    'Manila'        => ['photo' => 'photo-1597149572892-2a20e8fa4282', 'country' => 'Philippines', 'flag' => '🇵🇭'],
+    'Cebu City'     => ['photo' => 'photo-1518548419970-58e3b4079ab2', 'country' => 'Philippines', 'flag' => '🇵🇭'],
+    'Boracay'       => ['photo' => 'photo-1510414842594-a61c69b5ae57', 'country' => 'Philippines', 'flag' => '🇵🇭'],
+    'Baguio'        => ['photo' => 'photo-1558618666-fcd25c85cd64', 'country' => 'Philippines', 'flag' => '🇵🇭'],
+    'Bali'          => ['photo' => 'photo-1537996194471-e657df975ab4', 'country' => 'Indonesia',   'flag' => '🇮🇩'],
+    'Jakarta'       => ['photo' => 'photo-1555899434-94d1368aa7af', 'country' => 'Indonesia',   'flag' => '🇮🇩'],
+    'Singapore'     => ['photo' => 'photo-1525625293386-3f8f99389edd', 'country' => 'Singapore',   'flag' => '🇸🇬'],
+    'Ho Chi Minh City' => ['photo' => 'photo-1583417319070-4a69db38a482', 'country' => 'Vietnam',    'flag' => '🇻🇳'],
+];
+// Only show cities that actually have hotels in Firestore
+$_locationCards = [];
+foreach ($_featuredCities as $_city => $_meta) {
+    $cnt = $_cityCount[$_city] ?? 0;
+    if ($cnt > 0) $_locationCards[$_city] = array_merge($_meta, ['count' => $cnt]);
+}
+unset($_allActive);
+
 // Min price per hotel: load available rooms for those 6 hotels
 $prices = [];
 foreach ($featured as $fh) {
@@ -316,6 +342,61 @@ $isLoggedIn = isset($_SESSION['account_id']);
 
     </div>
 </section>
+
+<!-- ===== BROWSE BY LOCATION ===== -->
+<?php if (!empty($_locationCards)): ?>
+<section style="background: var(--rd-bg); padding: 80px 0 60px;">
+    <div class="container">
+
+        <div class="d-flex justify-content-between align-items-end mb-5 flex-wrap gap-3">
+            <div data-aos="fade-right">
+                <div class="section-label">Destinations</div>
+                <h2 class="section-title">Browse by Location</h2>
+                <p class="section-subtitle">Find the perfect stay in top cities across Southeast Asia.</p>
+            </div>
+            <a href="/hotels/search.php" class="btn-rd-outline" data-aos="fade-left" style="font-size:13px; padding:8px 20px;">
+                All Destinations <i class="bi bi-arrow-right ms-1"></i>
+            </a>
+        </div>
+
+        <div class="row g-3">
+            <?php $__idx = 0; foreach ($_locationCards as $_city => $_info): ?>
+            <div class="col-6 col-md-4 col-lg-3" data-aos="fade-up" data-aos-delay="<?= ($__idx % 4) * 70 ?>">
+                <a href="/hotels/search.php?city=<?= urlencode($_city) ?>" style="text-decoration:none; display:block; border-radius:14px; overflow:hidden; position:relative; height:180px; box-shadow:var(--rd-shadow);">
+
+                    <!-- Background image -->
+                    <img src="https://images.unsplash.com/<?= $_info['photo'] ?>?q=75&w=600&auto=format&fit=crop"
+                         alt="<?= htmlspecialchars($_city) ?>"
+                         style="width:100%; height:100%; object-fit:cover; transition:transform 0.4s ease;"
+                         onmouseover="this.style.transform='scale(1.06)'"
+                         onmouseout="this.style.transform='scale(1)'">
+
+                    <!-- Dark gradient -->
+                    <div style="position:absolute; inset:0; background:linear-gradient(0deg, rgba(0,0,0,0.72) 0%, rgba(0,0,0,0.10) 60%);"></div>
+
+                    <!-- Text overlay -->
+                    <div style="position:absolute; bottom:0; left:0; right:0; padding:14px 16px;">
+                        <div style="font-size:16px; font-weight:700; color:#fff; line-height:1.2; margin-bottom:3px;">
+                            <?= $_info['flag'] ?> <?= htmlspecialchars($_city) ?>
+                        </div>
+                        <div style="font-size:12px; color:rgba(255,255,255,0.72);">
+                            <?= $_info['count'] ?> hotel<?= $_info['count'] !== 1 ? 's' : '' ?>
+                        </div>
+                    </div>
+
+                    <!-- Country badge -->
+                    <div style="position:absolute; top:10px; right:10px; background:rgba(0,0,0,0.45); backdrop-filter:blur(4px); border-radius:20px; padding:3px 9px; font-size:10px; color:rgba(255,255,255,0.80); font-weight:600; letter-spacing:0.5px;">
+                        <?= htmlspecialchars($_info['country']) ?>
+                    </div>
+
+                </a>
+            </div>
+            <?php $__idx++; endforeach; ?>
+        </div>
+
+    </div>
+</section>
+<?php endif; ?>
 
 <!-- ===== WHY REDDOORZ ===== -->
 <section style="background:#fff; padding:80px 0;">
