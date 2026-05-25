@@ -224,12 +224,16 @@ $imgSeed = 'reddoorz' . $hotelId;
                     <div class="mb-3">
                         <label class="form-label">Check-in</label>
                         <input type="date" name="checkin" class="form-control"
-                               min="<?= date('Y-m-d') ?>" value="<?= htmlspecialchars($checkin) ?>">
+                               min="<?= date('Y-m-d') ?>"
+                               max="<?= date('Y-m-d', strtotime('+2 years')) ?>"
+                               value="<?= htmlspecialchars($checkin ?: date('Y-m-d')) ?>">
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Check-out</label>
                         <input type="date" name="checkout" class="form-control"
-                               min="<?= date('Y-m-d', strtotime('+1 day')) ?>" value="<?= htmlspecialchars($checkout) ?>">
+                               min="<?= date('Y-m-d', strtotime('+1 day')) ?>"
+                               max="<?= date('Y-m-d', strtotime('+2 years')) ?>"
+                               value="<?= htmlspecialchars($checkout) ?>">
                     </div>
                     <button type="submit" class="btn-rd w-100" style="justify-content:center; padding:10px;">
                         <i class="bi bi-arrow-repeat me-1"></i>Update Dates

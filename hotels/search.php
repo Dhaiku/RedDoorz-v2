@@ -73,12 +73,16 @@ if ($datesGiven) {
             <div style="min-width:145px;">
                 <label class="form-label mb-1" style="font-size:12px;">Check-in</label>
                 <input type="date" name="checkin" class="form-control"
-                       min="<?= date('Y-m-d') ?>" value="<?= htmlspecialchars($checkin) ?>">
+                       min="<?= date('Y-m-d') ?>"
+                       max="<?= date('Y-m-d', strtotime('+2 years')) ?>"
+                       value="<?= htmlspecialchars($checkin ?: date('Y-m-d')) ?>">
             </div>
             <div style="min-width:145px;">
                 <label class="form-label mb-1" style="font-size:12px;">Check-out</label>
                 <input type="date" name="checkout" class="form-control"
-                       min="<?= date('Y-m-d', strtotime('+1 day')) ?>" value="<?= htmlspecialchars($checkout) ?>">
+                       min="<?= date('Y-m-d', strtotime('+1 day')) ?>"
+                       max="<?= date('Y-m-d', strtotime('+2 years')) ?>"
+                       value="<?= htmlspecialchars($checkout) ?>">
             </div>
             <button type="submit" class="btn-rd" style="padding:10px 22px; white-space:nowrap;">
                 <i class="bi bi-search me-1"></i>Search

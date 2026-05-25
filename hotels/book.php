@@ -188,13 +188,15 @@ include "../layout/layout.php";
                             <label class="form-label">Check-in Date <span style="color:var(--rd-red)">*</span></label>
                             <input type="date" name="checkin" id="checkin" class="form-control"
                                    min="<?= date('Y-m-d') ?>"
+                                   max="<?= date('Y-m-d', strtotime('+2 years')) ?>"
                                    value="<?= htmlspecialchars($checkin ?: date('Y-m-d')) ?>" required>
                         </div>
                         <div class="col-6">
                             <label class="form-label">Check-out Date <span style="color:var(--rd-red)">*</span></label>
                             <input type="date" name="checkout" id="checkout" class="form-control"
                                    min="<?= date('Y-m-d', strtotime('+1 day')) ?>"
-                                   value="<?= htmlspecialchars($checkout ?: date('Y-m-d', strtotime('+1 day'))) ?>" required>
+                                   max="<?= date('Y-m-d', strtotime('+2 years')) ?>"
+                                   value="<?= htmlspecialchars($checkout) ?>" required>
                         </div>
                     </div>
 
