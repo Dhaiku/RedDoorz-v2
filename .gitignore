@@ -16,3 +16,6 @@ google-services-admin.json
 # Composer vendor
 vendor/
 composer.lock
+
+cache/*
+!cache/.gitkeep

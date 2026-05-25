@@ -15,6 +15,98 @@ require_once __DIR__ . '/../vendor/autoload.php';
 
 use Kreait\Firebase\Factory;
 
+// ── Cache layer ───────────────────────────────────────────────────────────────
+//
+// Two-level cache to avoid repeated HTTPS round-trips to Firestore:
+//   1. Request cache  — static PHP array; identical calls within one page load
+//                       are answered instantly from memory (0ms).
+//   2. Disk cache     — JSON files in /cache/; survives across page loads.
+//                       TTLs are per-collection (stable data lives longer).
+//
+// Write operations (insert/update/delete) bust both caches for that collection.
+
+define('_FS_CACHE_DIR', __DIR__ . '/../cache/');
+
+// TTL in seconds per collection (0 = do not disk-cache)
+$_FS_CACHE_TTL = [
+    'hotels'           => 120,   // 2 min  — rarely changes
+    'rooms'            => 60,    // 1 min
+    'bookings'         => 20,    // 20 sec — changes more often
+    'payments'         => 20,
+    'earnings'         => 30,
+    'customers'        => 120,
+    'accounts'         => 120,
+    'reviews'          => 120,
+    'hotelstaff'       => 120,
+    'fcmtokens'        => 30,
+    'payoutrequests'   => 20,
+    'blockeddates'     => 60,
+    'ownerapplications'=> 30,
+    'counters'         => 0,     // never cache — must always be live
+];
+
+/** Request-level memory cache: col => [cacheKey => result] */
+function &_fs_mem_cache(): array {
+    static $store = [];
+    return $store;
+}
+
+function _fs_cache_key(string $col, string $op, array $params): string {
+    // Colons are invalid in Windows filenames — use double-underscore as separator
+    return $col . '__' . $op . '__' . md5(serialize($params));
+}
+
+function _fs_cache_get(string $col, string $key) {
+    global $_FS_CACHE_TTL;
+    // 1. Memory cache (always check first)
+    $mem = &_fs_mem_cache();
+    if (isset($mem[$key])) return $mem[$key];
+
+    // 2. Disk cache
+    $ttl = $_FS_CACHE_TTL[$col] ?? 30;
+    if ($ttl <= 0) return null;
+
+    if (!is_dir(_FS_CACHE_DIR)) @mkdir(_FS_CACHE_DIR, 0755, true);
+    $file = _FS_CACHE_DIR . $key . '.json';
+    if (!file_exists($file)) return null;
+    if (time() - filemtime($file) > $ttl) return null;
+
+    $data = json_decode(file_get_contents($file), true);
+    if ($data === null) return null;
+
+    $mem[$key] = $data;   // promote to memory
+    return $data;
+}
+
+function _fs_cache_set(string $col, string $key, $value): void {
+    global $_FS_CACHE_TTL;
+    // Always store in memory
+    $mem = &_fs_mem_cache();
+    $mem[$key] = $value;
+
+    // Disk cache only when TTL > 0
+    $ttl = $_FS_CACHE_TTL[$col] ?? 30;
+    if ($ttl <= 0) return;
+
+    if (!is_dir(_FS_CACHE_DIR)) @mkdir(_FS_CACHE_DIR, 0755, true);
+    $file = _FS_CACHE_DIR . $key . '.json';
+    @file_put_contents($file, json_encode($value), LOCK_EX);
+}
+
+/** Bust all cached entries for a collection (called on write). */
+function _fs_cache_bust(string $col): void {
+    // Clear memory cache entries for this collection
+    $mem = &_fs_mem_cache();
+    foreach (array_keys($mem) as $k) {
+        if (strpos($k, $col . '__') === 0) unset($mem[$k]);
+    }
+    // Delete disk cache files for this collection
+    if (!is_dir(_FS_CACHE_DIR)) return;
+    foreach (glob(_FS_CACHE_DIR . $col . '__*.json') as $f) {
+        @unlink($f);
+    }
+}
+
 // ── Bootstrap: obtain a short-lived OAuth2 access token ──────────────────────
 
 $_FS_KEY_PATH = getenv('FIREBASE_KEY_PATH')
@@ -23,11 +115,27 @@ $_FS_KEY_PATH = getenv('FIREBASE_KEY_PATH')
 $_FS_PROJECT_ID = 'reddoorz-8f605';
 $_FS_BASE_URL   = "https://firestore.googleapis.com/v1/projects/{$_FS_PROJECT_ID}/databases/(default)/documents";
 
-/** Return (and cache) a valid Bearer token. */
+/** Return (and cache) a valid Bearer token.
+ *  Three-level cache: static var → disk file → Google OAuth endpoint.
+ *  The disk file means even the first call in a new PHP process is ~0ms
+ *  as long as the token hasn't expired (tokens last 1 hour).
+ */
 function _fs_token(): string {
     static $cache = null;
     static $exp   = 0;
     if ($cache && time() < $exp - 30) return $cache;
+
+    // Check disk token cache (lives up to 55 min)
+    $tokenFile = _FS_CACHE_DIR . '__oauth_token.json';
+    if (!is_dir(_FS_CACHE_DIR)) @mkdir(_FS_CACHE_DIR, 0755, true);
+    if (file_exists($tokenFile)) {
+        $tok = json_decode(file_get_contents($tokenFile), true);
+        if ($tok && !empty($tok['access_token']) && time() < $tok['exp'] - 30) {
+            $cache = $tok['access_token'];
+            $exp   = $tok['exp'];
+            return $cache;
+        }
+    }
 
     global $_FS_KEY_PATH;
 
@@ -62,6 +170,13 @@ function _fs_token(): string {
 
     $cache = $resp['access_token'];
     $exp   = $now + ($resp['expires_in'] ?? 3600);
+
+    // Persist token to disk so next PHP process skips this round-trip
+    @file_put_contents($tokenFile, json_encode([
+        'access_token' => $cache,
+        'exp'          => $exp,
+    ]), LOCK_EX);
+
     return $cache;
 }
 
@@ -249,6 +364,11 @@ function _fs_run_query(string $col, array $wheres = [], array $orderBy = [], int
     }
     if ($fsLimit > 0) $structured['limit'] = $fsLimit;
 
+    // Check cache before hitting the network
+    $cacheKey    = _fs_cache_key($col, 'q', [$wheres, $orderBy, $limit]);
+    $cachedDocs  = _fs_cache_get($col, $cacheKey);
+    if ($cachedDocs !== null) return $cachedDocs;
+
     $url  = _fs_query_url();
     $resp = _fs_req('POST', $url, ['structuredQuery' => $structured]);
 
@@ -282,6 +402,7 @@ function _fs_run_query(string $col, array $wheres = [], array $orderBy = [], int
         $docs = array_slice($docs, 0, $limit);
     }
 
+    _fs_cache_set($col, $cacheKey, $docs);
     return $docs;
 }
 
@@ -311,9 +432,15 @@ function fs_next_id(string $collection): int {
 
 /** Get one document by its integer ID. Returns array or null. */
 function fs_get(string $col, int $id): ?array {
-    $url  = _fs_doc_url($col, (string)$id);
-    $resp = _fs_req('GET', $url);
-    return _fs_doc_to_array($resp);
+    $key    = _fs_cache_key($col, 'get', [$id]);
+    $cached = _fs_cache_get($col, $key);
+    if ($cached !== null) return $cached ?: null;
+
+    $url    = _fs_doc_url($col, (string)$id);
+    $resp   = _fs_req('GET', $url);
+    $result = _fs_doc_to_array($resp);
+    _fs_cache_set($col, $key, $result ?? false);  // false = "not found"
+    return $result;
 }
 
 /** Get all documents in a collection. */
@@ -341,6 +468,7 @@ function fs_insert(string $col, array $data): int {
 
     $url = _fs_doc_url($col, (string)$id);
     _fs_req('PATCH', $url, _fs_array_to_doc($data));
+    _fs_cache_bust($col);
     return $id;
 }
 
@@ -352,12 +480,14 @@ function fs_update(string $col, int $id, array $data): void {
     // Build updateMask query param so only the named fields are touched
     $mask  = implode('&', array_map(fn($k) => 'updateMask.fieldPaths=' . urlencode($k), array_keys($data)));
     _fs_req('PATCH', $url . '?' . $mask, _fs_array_to_doc($data));
+    _fs_cache_bust($col);
 }
 
 /** Delete a document. */
 function fs_delete(string $col, int $id): void {
     $url = _fs_doc_url($col, (string)$id);
     _fs_req('DELETE', $url);
+    _fs_cache_bust($col);
 }
 
 /** Count documents matching a query. */
