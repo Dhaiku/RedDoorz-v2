@@ -56,9 +56,9 @@ function _fs_cache_key(string $col, string $op, array $params): string {
     return $col . '__' . $op . '__' . md5(serialize($params));
 }
 
-function _fs_cache_get(string $col, string $key) {
+function _fs_cache_get(string $col, string $key, bool $allowStale = false) {
     global $_FS_CACHE_TTL;
-    // 1. Memory cache (always check first)
+    // 1. Memory cache (always check first — always fresh within this request)
     $mem = &_fs_mem_cache();
     if (isset($mem[$key])) return $mem[$key];
 
@@ -69,12 +69,16 @@ function _fs_cache_get(string $col, string $key) {
     if (!is_dir(_FS_CACHE_DIR)) @mkdir(_FS_CACHE_DIR, 0755, true);
     $file = _FS_CACHE_DIR . $key . '.json';
     if (!file_exists($file)) return null;
-    if (time() - filemtime($file) > $ttl) return null;
+
+    $age  = time() - filemtime($file);
+    // If $allowStale, serve expired cache rather than returning null
+    // (used as fallback when Firestore is unreachable)
+    if ($age > $ttl && !$allowStale) return null;
 
     $data = json_decode(file_get_contents($file), true);
     if ($data === null) return null;
 
-    $mem[$key] = $data;   // promote to memory
+    $mem[$key] = $data;
     return $data;
 }
 
@@ -165,6 +169,17 @@ function _fs_token(): string {
     ]), 'application/x-www-form-urlencoded');
 
     if (empty($resp['access_token'])) {
+        // If token fetch failed but we have a (possibly expired) disk token, use it
+        // rather than hard-crashing the page — Firestore may still accept it briefly
+        if (file_exists($tokenFile)) {
+            $tok = json_decode(file_get_contents($tokenFile), true);
+            if ($tok && !empty($tok['access_token'])) {
+                error_log('Firestore: token refresh failed, using stale token. Error: ' . json_encode($resp));
+                $cache = $tok['access_token'];
+                $exp   = $tok['exp'] ?? (time() + 300);
+                return $cache;
+            }
+        }
         throw new RuntimeException('Firestore: could not get access token: ' . json_encode($resp));
     }
 
@@ -194,6 +209,8 @@ function _fs_http_post(string $url, $body, string $ct = 'application/json'): arr
         CURLOPT_POSTFIELDS     => is_array($body) ? json_encode($body) : $body,
         CURLOPT_HTTPHEADER     => ["Content-Type: $ct"],
         CURLOPT_SSL_VERIFYPEER => true,
+        CURLOPT_CONNECTTIMEOUT => 8,   // fail if can't connect within 8s
+        CURLOPT_TIMEOUT        => 15,  // fail if full request takes >15s
     ]);
     $out = curl_exec($ch);
     curl_close($ch);
@@ -211,15 +228,24 @@ function _fs_req(string $method, string $url, array $body = []): array {
             'Content-Type: application/json',
         ],
         CURLOPT_SSL_VERIFYPEER => true,
+        CURLOPT_CONNECTTIMEOUT => 8,   // fail if can't connect within 8s
+        CURLOPT_TIMEOUT        => 15,  // fail if full request takes >15s
     ];
     if ($body) $opts[CURLOPT_POSTFIELDS] = json_encode($body);
     curl_setopt_array($ch, $opts);
-    $out  = curl_exec($ch);
-    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $out     = curl_exec($ch);
+    $errno   = curl_errno($ch);
+    $code    = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
+
+    // Network error (timeout, no connection, etc.) — return sentinel
+    if ($errno !== 0) {
+        error_log("Firestore curl error ($errno) on $method $url");
+        return ['_curl_error' => $errno];
+    }
+
     $decoded = json_decode($out ?: '{}', true) ?: [];
     if ($code >= 400 && !empty($decoded['error'])) {
-        // Non-fatal 404 (document not found) — return empty
         if ($code === 404) return [];
         throw new RuntimeException("Firestore REST error $code: " . json_encode($decoded['error']));
     }
@@ -372,6 +398,11 @@ function _fs_run_query(string $col, array $wheres = [], array $orderBy = [], int
     $url  = _fs_query_url();
     $resp = _fs_req('POST', $url, ['structuredQuery' => $structured]);
 
+    // Curl timed out — serve stale cache if available, else empty array
+    if (!empty($resp['_curl_error'])) {
+        return _fs_cache_get($col, $cacheKey, true) ?? [];
+    }
+
     $docs = [];
     foreach ((array)$resp as $item) {
         if (!empty($item['document'])) {
@@ -436,10 +467,17 @@ function fs_get(string $col, int $id): ?array {
     $cached = _fs_cache_get($col, $key);
     if ($cached !== null) return $cached ?: null;
 
-    $url    = _fs_doc_url($col, (string)$id);
-    $resp   = _fs_req('GET', $url);
+    $url  = _fs_doc_url($col, (string)$id);
+    $resp = _fs_req('GET', $url);
+
+    // Curl timed out — serve stale cache if available, else return null
+    if (!empty($resp['_curl_error'])) {
+        $stale = _fs_cache_get($col, $key, true);
+        return $stale ? ($stale ?: null) : null;
+    }
+
     $result = _fs_doc_to_array($resp);
-    _fs_cache_set($col, $key, $result ?? false);  // false = "not found"
+    _fs_cache_set($col, $key, $result ?? false);
     return $result;
 }
 
