@@ -1,0 +1,1206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>RedDoorz — Video Recording Script</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --red:     #B80020;
+    --red-lt:  #F9E4E7;
+    --blue:    #1D4ED8;
+    --blue-lt: #EFF6FF;
+    --green:   #15803D;
+    --green-lt:#F0FDF4;
+    --amber:   #B45309;
+    --amber-lt:#FFFBEB;
+    --purple:  #6D28D9;
+    --purple-lt:#F5F3FF;
+    --gray:    #6B7280;
+    --border:  #E5E7EB;
+    --bg:      #F8F9FB;
+    --white:   #FFFFFF;
+    --text:    #111827;
+    --muted:   #9CA3AF;
+    --code-bg: #1E1E2E;
+    --code-fg: #CDD6F4;
+  }
+
+  body {
+    font-family: 'Inter', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    font-size: 15px;
+  }
+
+  /* ── Cover ── */
+  .cover {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    background: linear-gradient(135deg, #0f0f0f 0%, #1a0005 50%, #0f0f0f 100%);
+    color: #fff;
+    padding: 60px 24px;
+    position: relative;
+    overflow: hidden;
+  }
+  .cover::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse 60% 40% at 50% 50%, rgba(184,0,32,.18) 0%, transparent 70%);
+  }
+  .cover-logo {
+    font-size: 58px;
+    font-weight: 800;
+    letter-spacing: -2px;
+    margin-bottom: 6px;
+    position: relative;
+  }
+  .cover-logo span { color: var(--red); }
+  .cover-sub {
+    font-size: 13px;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    color: #9CA3AF;
+    margin-bottom: 56px;
+    position: relative;
+  }
+  .cover-title {
+    font-size: 46px;
+    font-weight: 800;
+    letter-spacing: -1.5px;
+    margin-bottom: 12px;
+    position: relative;
+  }
+  .cover-desc {
+    font-size: 14px;
+    color: #9CA3AF;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    margin-bottom: 72px;
+    position: relative;
+  }
+  .cover-stats {
+    display: flex;
+    gap: 64px;
+    position: relative;
+  }
+  .cover-stat-val {
+    font-size: 52px;
+    font-weight: 800;
+    color: var(--red);
+    line-height: 1;
+  }
+  .cover-stat-lbl {
+    font-size: 11px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: #6B7280;
+    margin-top: 6px;
+  }
+
+  /* ── TOC ── */
+  .toc {
+    max-width: 820px;
+    margin: 72px auto;
+    padding: 0 24px;
+  }
+  .toc h2 {
+    font-size: 32px;
+    font-weight: 800;
+    letter-spacing: -0.8px;
+    margin-bottom: 6px;
+  }
+  .toc-sub {
+    font-size: 12px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 40px;
+  }
+  .toc-group-label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 32px 0 12px;
+  }
+  .toc-row {
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .toc-num {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--red);
+    min-width: 24px;
+  }
+  .toc-info { flex: 1; }
+  .toc-name { font-size: 15px; font-weight: 700; }
+  .toc-detail { font-size: 13px; color: var(--gray); margin-top: 2px; }
+  .toc-time {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--blue);
+    white-space: nowrap;
+    background: var(--blue-lt);
+    padding: 3px 10px;
+    border-radius: 20px;
+  }
+  .toc-total {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 32px;
+    padding: 20px 0;
+    border-top: 2px solid var(--border);
+    font-size: 14px;
+    color: var(--gray);
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    font-weight: 600;
+  }
+  .toc-total-val {
+    font-size: 26px;
+    font-weight: 800;
+    color: var(--red);
+  }
+
+  /* ── Page wrapper ── */
+  .page { max-width: 820px; margin: 0 auto; padding: 0 24px 100px; }
+
+  /* ── Section header ── */
+  .section-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 24px;
+    margin: 80px 0 40px;
+    padding-bottom: 32px;
+    border-bottom: 2px solid var(--border);
+  }
+  .section-num {
+    font-size: 52px;
+    font-weight: 800;
+    color: var(--red);
+    line-height: 1;
+    min-width: 60px;
+  }
+  .section-info { flex: 1; }
+  .section-title {
+    font-size: 26px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    margin-bottom: 6px;
+  }
+  .section-topics {
+    font-size: 13px;
+    color: var(--gray);
+  }
+  .section-timer {
+    background: var(--red-lt);
+    color: var(--red);
+    font-weight: 700;
+    font-size: 13px;
+    padding: 6px 14px;
+    border-radius: 20px;
+    white-space: nowrap;
+    align-self: flex-start;
+    margin-top: 4px;
+    border: 1px solid rgba(184,0,32,.15);
+  }
+
+  /* ── Subsection ── */
+  .subsection {
+    margin: 40px 0 0;
+    padding: 24px 0 0;
+    border-top: 1px solid var(--border);
+  }
+  .subsection-title {
+    font-size: 17px;
+    font-weight: 700;
+    margin-bottom: 20px;
+  }
+
+  /* ── Timestamp ── */
+  .timestamp {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--muted);
+    letter-spacing: 1px;
+    margin-bottom: 16px;
+  }
+
+  /* ── Block types ── */
+  .block {
+    margin: 16px 0;
+    padding: 16px 20px;
+    border-radius: 8px;
+    font-size: 14px;
+    line-height: 1.75;
+  }
+  .block-label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+
+  /* SCREEN — green left border */
+  .block-screen {
+    background: var(--green-lt);
+    border-left: 4px solid #22C55E;
+  }
+  .block-screen .block-label { color: var(--green); }
+
+  /* NARRATION — blue left border */
+  .block-narration {
+    background: var(--blue-lt);
+    border-left: 4px solid #3B82F6;
+    font-style: italic;
+  }
+  .block-narration .block-label { color: var(--blue); font-style: normal; }
+
+  /* ACTION — amber left border */
+  .block-action {
+    background: var(--amber-lt);
+    border-left: 4px solid #F59E0B;
+  }
+  .block-action .block-label { color: var(--amber); }
+
+  /* DATABASE — purple left border */
+  .block-db {
+    background: var(--purple-lt);
+    border-left: 4px solid #8B5CF6;
+  }
+  .block-db .block-label { color: var(--purple); }
+
+  /* CODE block */
+  .block-code {
+    background: var(--code-bg);
+    border-left: 4px solid #585b70;
+    border-radius: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12.5px;
+    line-height: 1.7;
+    color: var(--code-fg);
+    overflow-x: auto;
+  }
+  .block-code .block-label {
+    color: #585b70;
+    font-family: 'Inter', sans-serif;
+  }
+  .kw  { color: #CBA6F7; } /* keyword / type */
+  .fn  { color: #89B4FA; } /* function */
+  .str { color: #A6E3A1; } /* string */
+  .cm  { color: #585b70; font-style: italic; } /* comment */
+  .num { color: #FAB387; } /* number */
+  .op  { color: #F38BA8; } /* operator / field */
+
+  /* Numbered steps */
+  .steps { margin: 12px 0; padding-left: 0; list-style: none; counter-reset: step; }
+  .steps li {
+    counter-increment: step;
+    display: flex;
+    gap: 14px;
+    padding: 10px 0;
+    border-bottom: 1px solid rgba(0,0,0,.06);
+    font-size: 14px;
+    line-height: 1.6;
+  }
+  .steps li::before {
+    content: counter(step);
+    min-width: 24px;
+    height: 24px;
+    background: var(--red);
+    color: #fff;
+    border-radius: 50%;
+    font-size: 11px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+
+  /* DB field table */
+  .db-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
+  .db-table th {
+    text-align: left;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 6px 10px;
+    border-bottom: 2px solid var(--border);
+  }
+  .db-table td {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  .db-table tr:last-child td { border-bottom: none; }
+  .field-name { font-family: 'JetBrains Mono', monospace; color: var(--red); font-weight: 600; }
+  .field-type { color: var(--blue); font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+  .field-desc { color: var(--gray); }
+
+  /* Collection pill */
+  .coll {
+    display: inline-block;
+    background: var(--red-lt);
+    color: var(--red);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 4px;
+    margin: 1px;
+  }
+
+  /* Badge */
+  .badge {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 20px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .badge-pending  { background:#FEF3C7; color:#92400E; }
+  .badge-confirmed{ background:#D1FAE5; color:#065F46; }
+  .badge-completed{ background:#DBEAFE; color:#1E40AF; }
+  .badge-cancelled{ background:#FEE2E2; color:#991B1B; }
+
+  /* Flow diagram */
+  .flow {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    margin: 16px 0;
+    font-size: 13px;
+  }
+  .flow-step {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    background: var(--white);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 4px;
+    font-weight: 500;
+  }
+  .flow-step .icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--red-lt);
+    color: var(--red);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    flex-shrink: 0;
+    font-weight: 700;
+  }
+  .flow-arrow {
+    text-align: center;
+    color: var(--muted);
+    font-size: 16px;
+    line-height: 1;
+    margin: -2px 0;
+  }
+
+  /* Highlight inline */
+  .hi { background: #FEF9C3; padding: 1px 4px; border-radius: 3px; font-weight: 600; color: #78350F; }
+  code { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; background: #F3F4F6; padding: 1px 5px; border-radius: 3px; color: var(--red); }
+
+  /* print */
+  @media print {
+    .cover { min-height: auto; page-break-after: always; }
+    .section-header { page-break-before: always; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════ COVER -->
+<div class="cover">
+  <div class="cover-logo"><span>Red</span>Doorz</div>
+  <div class="cover-sub">Hotel Booking Platform</div>
+  <div class="cover-title">Video Recording Script</div>
+  <div class="cover-desc">System Walkthrough &middot; Actors &middot; Transactions &middot; Database &middot; Source Code</div>
+  <div class="cover-stats">
+    <div>
+      <div class="cover-stat-val">8</div>
+      <div class="cover-stat-lbl">Sections</div>
+    </div>
+    <div>
+      <div class="cover-stat-val">~25</div>
+      <div class="cover-stat-lbl">Minutes Total</div>
+    </div>
+    <div>
+      <div class="cover-stat-val">3</div>
+      <div class="cover-stat-lbl">Actors</div>
+    </div>
+    <div>
+      <div class="cover-stat-val">6</div>
+      <div class="cover-stat-lbl">Live Transactions</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ TOC -->
+<div class="toc">
+  <h2>Table of Contents</h2>
+  <div class="toc-sub">Complete section breakdown with estimated runtimes</div>
+
+  <div class="toc-group-label">Overview</div>
+  <div class="toc-row">
+    <div class="toc-num">01</div>
+    <div class="toc-info">
+      <div class="toc-name">Introduction &amp; Project Overview</div>
+      <div class="toc-detail">What RedDoorz is, purpose, tech stack, project goals</div>
+    </div>
+    <div class="toc-time">0:00 – 2:00</div>
+  </div>
+  <div class="toc-row">
+    <div class="toc-num">02</div>
+    <div class="toc-info">
+      <div class="toc-name">System Architecture &amp; Workflow</div>
+      <div class="toc-detail">Folder structure, Firestore collections, data flow, auth system</div>
+    </div>
+    <div class="toc-time">2:00 – 4:00</div>
+  </div>
+
+  <div class="toc-group-label">Actors &amp; Dashboards</div>
+  <div class="toc-row">
+    <div class="toc-num">03</div>
+    <div class="toc-info">
+      <div class="toc-name">Admin Dashboard Walkthrough</div>
+      <div class="toc-detail">Overview, hotels, bookings, owners, payouts, customers</div>
+    </div>
+    <div class="toc-time">4:00 – 7:00</div>
+  </div>
+  <div class="toc-row">
+    <div class="toc-num">04</div>
+    <div class="toc-info">
+      <div class="toc-name">Hotel Owner Dashboard Walkthrough</div>
+      <div class="toc-detail">Application, onboarding, rooms, bookings, staff, earnings</div>
+    </div>
+    <div class="toc-time">7:00 – 10:00</div>
+  </div>
+  <div class="toc-row">
+    <div class="toc-num">05</div>
+    <div class="toc-info">
+      <div class="toc-name">Customer Experience Walkthrough</div>
+      <div class="toc-detail">Registration, search, hotel detail, booking flow, dashboard</div>
+    </div>
+    <div class="toc-time">10:00 – 12:30</div>
+  </div>
+
+  <div class="toc-group-label">Transactions</div>
+  <div class="toc-row">
+    <div class="toc-num">06</div>
+    <div class="toc-info">
+      <div class="toc-name">Live System Transactions</div>
+      <div class="toc-detail">End-to-end booking, payment, owner approval, payout request</div>
+    </div>
+    <div class="toc-time">12:30 – 18:30</div>
+  </div>
+
+  <div class="toc-group-label">Technical Deep Dive</div>
+  <div class="toc-row">
+    <div class="toc-num">07</div>
+    <div class="toc-info">
+      <div class="toc-name">Database — Firestore Data Storage</div>
+      <div class="toc-detail">Collections, document structure, data entry &amp; manipulation, transaction processing</div>
+    </div>
+    <div class="toc-time">18:30 – 22:00</div>
+  </div>
+  <div class="toc-row">
+    <div class="toc-num">08</div>
+    <div class="toc-info">
+      <div class="toc-name">Source Code Walkthrough</div>
+      <div class="toc-detail">Firestore client, auth, booking flow, earnings split, cache layer</div>
+    </div>
+    <div class="toc-time">22:00 – 25:00</div>
+  </div>
+
+  <div class="toc-total">
+    <span>Total Estimated Runtime</span>
+    <span class="toc-total-val">≈ 25 Minutes</span>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ SECTIONS -->
+<div class="page">
+
+<!-- ─── SECTION 01 ─── -->
+<div class="section-header">
+  <div class="section-num">01</div>
+  <div class="section-info">
+    <div class="section-title">Introduction &amp; Project Overview</div>
+    <div class="section-topics">What RedDoorz is &middot; Purpose &middot; Tech Stack &middot; Project Goals</div>
+  </div>
+  <div class="section-timer">⏱ 0:00 – 2:00</div>
+</div>
+
+<div class="timestamp">0:00</div>
+<div class="block block-screen">
+  <div class="block-label">Screen</div>
+  Show the RedDoorz landing page (index.php) — the hero section is visible with the search bar, featured hotels, and "Browse by Location" section.
+</div>
+<div class="block block-narration">
+  <div class="block-label">Narration</div>
+  "Welcome. This is RedDoorz — a full-stack web-based Hotel Booking Platform built entirely in PHP, using Google Firebase Firestore as its cloud database, and deployed on a local XAMPP server.
+  <br><br>
+  RedDoorz simulates a real-world hotel marketplace — similar to how booking.com or Agoda works — where Hotel Owners list their properties, Customers search and book rooms, and a Platform Administrator oversees every aspect of the operation.
+  <br><br>
+  The name is inspired by the real RedDoorz brand, a Southeast Asian budget hotel aggregator, and this project captures that same three-sided marketplace model."
+</div>
+
+<div class="timestamp">0:50</div>
+<div class="block block-action">
+  <div class="block-label">Action</div>
+  Scroll slowly through the landing page — show the hero search widget, the featured hotels grid with real photos and prices, and the Browse by Location section with city cards. Do NOT click anything yet.
+</div>
+<div class="block block-narration">
+  <div class="block-label">Narration</div>
+  "The tech stack is straightforward but powerful. The frontend uses Bootstrap 5 with Bootstrap Icons for a clean, responsive interface — all custom-styled with the brand's signature red color scheme. Business logic runs entirely server-side in plain PHP with no frameworks. The database is Google Cloud Firestore — a NoSQL document database — accessed through a custom-built PHP REST client using cURL. There is no MySQL and no SQL anywhere in this project."
+</div>
+
+<div class="timestamp">1:30</div>
+<div class="block block-narration">
+  <div class="block-label">Narration</div>
+  "The system revolves around three distinct actors: the Admin, the Hotel Owner, and the Customer. Each has a completely separate dashboard with its own login, workflows, and access permissions. Let's start with the system architecture before walking through each actor."
+</div>
+
+<!-- ─── SECTION 02 ─── -->
+<div class="section-header">
+  <div class="section-num">02</div>
+  <div class="section-info">
+    <div class="section-title">System Architecture &amp; Workflow</div>
+    <div class="section-topics">Folder structure &middot; Firestore collections &middot; Data flow &middot; Auth system</div>
+  </div>
+  <div class="section-timer">⏱ 2:00 – 4:00</div>
+</div>
+
+<div class="timestamp">2:00</div>
+<div class="block block-screen">
+  <div class="block-label">Screen</div>
+  Switch to VS Code. Show the root folder <code>C:\RedDoorz\</code> with all sub-folders expanded: <strong>admin/</strong>, <strong>auth/</strong>, <strong>config/</strong>, <strong>customer/</strong>, <strong>hotels/</strong>, <strong>layout/</strong>, <strong>owner/</strong>, <strong>api/</strong>, <strong>cache/</strong>, <strong>vendor/</strong>.
+</div>
+<div class="block block-narration">
+  <div class="block-label">Narration</div>
+  "The project is organized by role and responsibility. The <strong>auth</strong> folder handles all authentication — login, registration, logout, and forced password changes. The <strong>admin</strong>, <strong>owner</strong>, and <strong>customer</strong> folders each contain self-contained dashboards for their respective roles. The <strong>hotels</strong> folder holds the public-facing search, hotel detail, booking, and payment pages. The <strong>layout</strong> folder contains shared UI components like the navbar, sidebar, and footer. And the <strong>config</strong> folder is the engine — it houses the Firestore REST client that powers every database operation in the application."
+</div>
+
+<div class="timestamp">2:45</div>
+<div class="block block-screen">
+  <div class="block-label">Screen</div>
+  Open the Firebase Console. Show the Firestore Database with all collections listed: <strong>accounts, customers, hotels, rooms, bookings, payments, earnings, reviews, hotelstaff, fcmtokens, payoutrequests, blockeddates, ownerapplications, counters</strong>.
+</div>
+<div class="block block-narration">
+  <div class="block-label">Narration</div>
+  "All data is stored in Google Cloud Firestore — a NoSQL document database. The application uses 14 collections. Here's a quick overview of the most important ones:"
+</div>
+
+<div class="block block-db">
+  <div class="block-label">Collections Overview</div>
+  <table class="db-table">
+    <thead>
+      <tr><th>Collection</th><th>Purpose</th><th>Key Fields</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><span class="coll">accounts</span></td><td class="field-desc">User credentials &amp; roles</td><td class="field-type">email, password (bcrypt), role, status</td></tr>
+      <tr><td><span class="coll">customers</span></td><td class="field-desc">Customer profiles</td><td class="field-type">acctId, firstName, lastName, phone</td></tr>
+      <tr><td><span class="coll">hotels</span></td><td class="field-desc">Hotel listings</td><td class="field-type">name, city, ownerId, rating, status</td></tr>
+      <tr><td><span class="coll">rooms</span></td><td class="field-desc">Room inventory</td><td class="field-type">hotelId, type, price, capacity, status</td></tr>
+      <tr><td><span class="coll">bookings</span></td><td class="field-desc">All reservations</td><td class="field-type">custId, hotelId, roomId, checkIn, checkOut, status</td></tr>
+      <tr><td><span class="coll">payments</span></td><td class="field-desc">Payment records</td><td class="field-type">bookId, method, amount, status</td></tr>
+      <tr><td><span class="coll">earnings</span></td><td class="field-desc">Revenue split</td><td class="field-type">totalAmount, ownerShare (85%), platformFee (15%)</td></tr>
+      <tr><td><span class="coll">ownerapplications</span></td><td class="field-desc">Partner applications</td><td class="field-type">applicantName, hotelName, city, status</td></tr>
+      <tr><td><span class="coll">payoutrequests</span></td><td class="field-desc">Owner payout requests</td><td class="field-type">ownerId, amount, method, accountNo, status</td></tr>
+      <tr><td><span class="coll">counters</span></td><td class="field-desc">Auto-increment IDs</td><td class="field-type">next (replaces SQL AUTO_INCREMENT)</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="timestamp">3:30</div>
+<div class="block block-narration">
+  <div class="block-label">Narration</div>
+  "The overall platform workflow goes like this: a prospective hotel owner submits a partner application. The admin reviews and approves it, which automatically creates their account with a temporary password. The owner logs in, changes their password, then adds rooms to their hotel. Meanwhile, customers register, search for hotels by city and dates, book a room, and complete a simulated payment. The booking is immediately reflected in the owner's dashboard. The platform automatically records an earnings split — eighty-five percent to the hotel owner and fifteen percent as platform commission. The admin oversees everything."
+</div>
+
+<!-- ─── SECTION 03 ─── -->
+<div class="section-header">
+  <div class="section-num">03</div>
+  <div class="section-info">
+    <div class="section-title">Admin Dashboard Walkthrough</div>
+    <div class="section-topics">Platform overview &middot; Hotel management &middot; Owner approval &middot; Bookings &middot; Payouts &middot; Customers</div>
+  </div>
+  <div class="section-timer">⏱ 4:00 – 7:00</div>
+</div>
+
+<div class="block block-action">
+  <div class="block-label">Action</div>
+  Navigate to <code>/auth/login.php</code>. Log in with admin credentials. Show the Admin Dashboard overview page.
+</div>
+
+<div class="block block-narration">
+  <div class="block-label">Narration</div>
+  "This is the Admin Dashboard — the control center of the entire platform. The admin account is the only role that cannot self-register; it is created directly in the database. From here, the admin has full visibility and control over every hotel, booking, owner, and customer on the platform."
+</div>
+
+<div class="subsection">
+  <div class="subsection-title">Dashboard Overview</div>
+  <div class="block block-screen">
+    <div class="block-label">Screen</div>
+    Show the admin dashboard stat cards — highlight all 8 metric cards in the 2×4 grid layout.
+  </div>
+  <div class="block block-narration">
+    <div class="block-label">Narration</div>
+    "The admin homepage gives a bird's-eye view of the entire platform. The top row shows total bookings with confirmed count, total revenue from paid transactions, active partner hotels, and registered guest accounts. The second row shows pending payments that need attention, the cancellation rate as a percentage, platform-wide average hotel rating, and the confirmed booking rate. Below the stats, a Recent Bookings table shows the last eight transactions across all hotels."
+  </div>
+</div>
+
+<div class="subsection">
+  <div class="subsection-title">Hotel &amp; Owner Management</div>
+  <div class="block block-action">
+    <div class="block-label">Action</div>
+    Click through the sidebar: Manage Hotels → Manage Owners → Owner Applications. Pause on each to show the table and available actions.
+  </div>
+  <div class="block block-narration">
+    <div class="block-label">Narration</div>
+    "The Manage Hotels page lists every active property on the platform — with its city, owner, rating, and current status. The admin can activate or deactivate any hotel at any time.
+    <br><br>
+    The Manage Owners page shows all approved hotel owner accounts — with options to suspend an account or reset a temporary password if an owner gets locked out.
+    <br><br>
+    The Owner Applications page is where new partner requests land. Each application shows the applicant's name, hotel name, city, room count, and a message. The admin can approve or reject the application. Approving it automatically creates a new hotel owner account linked to a new hotel document — the owner receives a temporary password to log in for the first time."
+  </div>
+</div>
+
+<div class="subsection">
+  <div class="subsection-title">Bookings, Customers &amp; Payouts</div>
+  <div class="block block-action">
+    <div class="block-label">Action</div>
+    Navigate to Manage Bookings — show the full booking list with status filter badges. Then navigate to Manage Customers and Manage Payouts.
+  </div>
+  <div class="block block-narration">
+    <div class="block-label">Narration</div>
+    "The Bookings page is a full transaction log — every reservation across all hotels, filterable by status: pending, confirmed, completed, and cancelled. The admin can review any booking detail or update its status if needed.
+    <br><br>
+    The Customers page lists all registered guests — their name, email, phone, and total booking count.
+    <br><br>
+    The Payouts page is where hotel owners' withdrawal requests are processed. When an owner requests a payout of their accumulated earnings, it appears here. The admin reviews the amount, payment method, and account number, then approves or rejects the request with an optional note."
+  </div>
+</div>
+
+<!-- ─── SECTION 04 ─── -->
+<div class="section-header">
+  <div class="section-num">04</div>
+  <div class="section-info">
+    <div class="section-title">Hotel Owner Dashboard Walkthrough</div>
+    <div class="section-topics">Application &middot; Onboarding &middot; Room management &middot; Bookings &middot; Staff &middot; Earnings &middot; Payouts</div>
+  </div>
+  <div class="section-timer">⏱ 7:00 – 10:00</div>
+</div>
+
+<div class="timestamp">7:00</div>
+<div class="block block-action">
+  <div class="block-label">Action</div>
+  Navigate to <code>/owner/apply.php</code>. Walk through the application form briefly — show all fields.
+</div>
+<div class="block block-narration">
+  <div class="block-label">Narration</div>
+  "A hotel owner's journey begins at the Partner Application page, which is publicly accessible — no account required. The applicant fills in their full name, email address, phone number, hotel name, city, address, estimated room count, and a message explaining their business. Once submitted, a new document is created in the <code>ownerapplications</code> collection and the admin is notified to review it."
+</div>
+
+<div class="subsection">
+  <div class="subsection-title">First Login &amp; Password Change</div>
+  <div class="block block-action">
+    <div class="block-label">Action</div>
+    Log in as an approved hotel owner. Show the forced password change screen first, then the owner dashboard after setting a new password.
+  </div>
+  <div class="block block-narration">
+    <div class="block-label">Narration</div>
+    "When an owner logs in for the first time, the system detects the <code>mustChangePassword</code> flag on their account and immediately redirects them to a password change form. They cannot access any other page until this is done. Once they set a secure password, the flag is cleared and they land on their personal dashboard."
+  </div>
+</div>
+
+<div class="subsection">
+  <div class="subsection-title">Owner Dashboard Home</div>
+  <div class="block block-screen">
+    <div class="block-label">Screen</div>
+    Show the owner dashboard homepage — stat cards, hotel details panel, recent bookings.
+  </div>
+  <div class="block block-narration">
+    <div class="block-label">Narration</div>
+    "The owner dashboard home shows metrics scoped exclusively to their hotel — total rooms, currently available rooms, total bookings received, confirmed bookings, and total earnings. They can see their hotel's rating, city, and address at a glance. Below the stats, a recent bookings table shows the latest reservations for their property."
+  </div>
+</div>
+
+<div class="subsection">
+  <div class="subsection-title">Room Management</div>
+  <div class="block block-action">
+    <div class="block-label">Action</div>
+    Click "Manage Rooms" in the sidebar. Show the room list. Click "Add Room" and walk through the form: room type, price, capacity, description, status.
+  </div>
+  <div class="block block-narration">
+    <div class="block-label">Narration</div>
+    "The Rooms page is where owners build their inventory. Adding a room requires a room type — such as Standard, Deluxe, or Suite — a nightly price in Philippine Pesos, the guest capacity, and an optional description. Rooms can be marked as available or unavailable. The availability status directly affects whether the room appears in customer search results."
+  </div>
+</div>
+
+<div class="subsection">
+  <div class="subsection-title">Staff, Earnings &amp; Payouts</div>
+  <div class="block block-action">
+    <div class="block-label">Action</div>
+    Navigate through: Manage Staff → Earnings → Request Payout. Briefly show each page.
+  </div>
+  <div class="block block-narration">
+    <div class="block-label">Narration</div>
+    "The Staff page lets owners register their hotel employees — name, role, contact details — useful for internal management and reference.
+    <br><br>
+    The Earnings page is particularly important. Every completed and confirmed booking generates an earnings record showing the total transaction amount, the owner's share at eighty-five percent, and the platform fee at fifteen percent. Owners can track their pending and confirmed earnings here.
+    <br><br>
+    Once an owner has accumulated earnings, they can submit a payout request — specifying the amount, payment method like GCash or bank transfer, and their account number. This request then goes to the admin for approval."
+  </div>
+</div>
+
+<!-- ─── SECTION 05 ─── -->
+<div class="section-header">
+  <div class="section-num">05</div>
+  <div class="section-info">
+    <div class="section-title">Customer Experience Walkthrough</div>
+    <div class="section-topics">Registration &middot; Hotel search &middot; Hotel detail &middot; Booking flow &middot; Payment &middot; Dashboard</div>
+  </div>
+  <div class="section-timer">⏱ 10:00 – 12:30</div>
+</div>
+
+<div class="timestamp">10:00</div>
+<div class="block block-action">
+  <div class="block-label">Action</div>
+  Navigate to <code>/auth/register.php</code>. Walk through the registration form — first name, last name, email, phone, password.
+</div>
+<div class="block block-narration">
+  <div class="block-label">Narration</div>
+  "Customers register with their first and last name, email address, a Philippine-format mobile number, and a password. On submission, the system creates two documents simultaneously — one in the <code>accounts</code> collection with login credentials, and one in the <code>customers</code> collection with profile information. These are linked by the account ID."
+</div>
+
+<div class="subsection">
+  <div class="subsection-title">Hotel Search</div>
+  <div class="block block-action">
+    <div class="block-label">Action</div>
+    From the landing page, enter a city and dates in the hero search bar. Show the search results page with hotel cards.
+  </div>
+  <div class="block block-narration">
+    <div class="block-label">Narration</div>
+    "The search page filters hotels by city and date availability in real time. Each hotel card shows the property photo, name, city, starting price per night, and star rating. Only hotels with at least one available room for the selected dates are shown — the system checks the <code>bookings</code> collection for date conflicts before displaying results."
+  </div>
+</div>
+
+<div class="subsection">
+  <div class="subsection-title">Hotel Detail</div>
+  <div class="block block-action">
+    <div class="block-label">Action</div>
+    Click on a hotel. Show the hotel detail page — photo, description, amenities, room cards, reviews section.
+  </div>
+  <div class="block block-narration">
+    <div class="block-label">Narration</div>
+    "The hotel detail page shows the full property profile — description, amenities, address, and rating. Below that, available room types are listed with their nightly price, capacity, and description. Guest reviews with star ratings are shown at the bottom. The customer selects a room and clicks Book to proceed."
+  </div>
+</div>
+
+<div class="subsection">
+  <div class="subsection-title">Customer Dashboard</div>
+  <div class="block block-action">
+    <div class="block-label">Action</div>
+    Navigate to <code>/customer/dashboard.php</code>. Show the booking list with status badges. Click into a booking to show its detail.
+  </div>
+  <div class="block block-narration">
+    <div class="block-label">Narration</div>
+    "The customer dashboard shows all their bookings — filterable by status: pending, confirmed, completed, and cancelled. Each row shows the hotel name, room type, check-in and check-out dates, total price, and current status. Customers can cancel a booking from here, as long as the check-in date is more than twenty-four hours away."
+  </div>
+</div>
+
+<!-- ─── SECTION 06 ─── -->
+<div class="section-header">
+  <div class="section-num">06</div>
+  <div class="section-info">
+    <div class="section-title">Live System Transactions</div>
+    <div class="section-topics">End-to-end booking &middot; Payment &middot; Owner approval &middot; Booking management &middot; Payout request &middot; Cancellation</div>
+  </div>
+  <div class="section-timer">⏱ 12:30 – 18:30</div>
+</div>
+
+<div class="timestamp">12:30</div>
+<div class="block block-narration">
+  <div class="block-label">Narration</div>
+  "Now let's perform complete live transactions — from a customer booking a hotel all the way through to the owner processing a payout. Watch closely as each step writes real data into Firestore."
+</div>
+
+<div class="subsection">
+  <div class="subsection-title">Transaction 1 — Customer Books a Room</div>
+  <ol class="steps">
+    <li>Log in as a customer. Navigate to the landing page search bar. Enter a city — for example, <strong>Manila</strong> — with check-in tomorrow and check-out two days after. Click Search.</li>
+    <li>On the search results page, select a hotel and click <strong>Book Now</strong> on a room.</li>
+    <li>On the booking page, confirm the check-in and check-out dates, enter the number of guests, and review the nightly price and total amount. Click <strong>Confirm Booking</strong>.</li>
+    <li>Open the Firebase Console and show the new document created in the <span class="coll">bookings</span> collection with <code>status: "pending"</code>.</li>
+  </ol>
+  <div class="block block-narration">
+    <div class="block-label">Narration</div>
+    "When the customer confirms the booking, a new document is written to the Firestore <code>bookings</code> collection. At this stage the status is <span class="badge badge-pending">pending</span> — meaning the reservation is held but payment has not yet been made. The room is effectively reserved from this moment."
+  </div>
+</div>
+
+<div class="subsection">
+  <div class="subsection-title">Transaction 2 — Customer Completes Payment</div>
+  <ol class="steps">
+    <li>The customer is redirected to the Payment page. Show the booking summary — hotel, room, dates, total.</li>
+    <li>Select a payment method — for example, <strong>GCash</strong>. Enter a reference code and click <strong>Pay Now</strong>.</li>
+    <li>The system creates a record in the <span class="coll">payments</span> collection, updates the booking status to <code>confirmed</code>, and creates an earnings record in the <span class="coll">earnings</span> collection.</li>
+    <li>Show the customer being redirected to their dashboard where the booking now shows <span class="badge badge-confirmed">confirmed</span>.</li>
+    <li>Open Firestore — show the updated booking document and the new earnings document with <code>ownerShare</code> and <code>platformFee</code> fields.</li>
+  </ol>
+  <div class="block block-narration">
+    <div class="block-label">Narration</div>
+    "Payment completion triggers three simultaneous writes to Firestore. The payment document is created. The booking's status field is updated to confirmed. And an earnings document is created — automatically calculating eighty-five percent as the owner's share and fifteen percent as the platform fee. All of this happens in a single PHP request."
+  </div>
+</div>
+
+<div class="subsection">
+  <div class="subsection-title">Transaction 3 — Admin Approves a New Owner Application</div>
+  <ol class="steps">
+    <li>Log in as admin. Navigate to <strong>Owner Applications</strong>. Find a pending application and click <strong>Approve</strong>.</li>
+    <li>Show the confirmation modal with the generated temporary password.</li>
+    <li>After approving, navigate to Manage Hotels — the new hotel now appears in the list.</li>
+    <li>Navigate to Manage Owners — the new owner account is listed with status <strong>active</strong>.</li>
+    <li>Open Firestore — show the new documents in <span class="coll">accounts</span> and <span class="coll">hotels</span>, and the updated <span class="coll">ownerapplications</span> document with <code>status: "approved"</code>.</li>
+  </ol>
+  <div class="block block-narration">
+    <div class="block-label">Narration</div>
+    "Approving an owner application triggers a cascade of writes. A new accounts document is created with role <code>hotel_owner</code> and <code>mustChangePassword: true</code>. A new hotels document is created pre-populated with the hotel details from the application. And the application document's status is updated to approved. All of this from a single admin button click."
+  </div>
+</div>
+
+<div class="subsection">
+  <div class="subsection-title">Transaction 4 — Owner Updates Booking Status</div>
+  <ol class="steps">
+    <li>Log in as the hotel owner. Navigate to <strong>Manage Bookings</strong>. Find the confirmed booking just made by the customer.</li>
+    <li>Update the booking status from <span class="badge badge-confirmed">confirmed</span> → <span class="badge badge-completed">completed</span> after the guest checks out.</li>
+    <li>Show the status badge changing in the table.</li>
+    <li>Open Firestore and confirm the <code>bookingStatus</code> field updated in real time.</li>
+  </ol>
+  <div class="block block-narration">
+    <div class="block-label">Narration</div>
+    "Status updates use a targeted PATCH request — only the <code>status</code> and <code>updatedAt</code> fields are rewritten in Firestore, leaving all other fields intact. The change is immediately visible on the customer's dashboard as well."
+  </div>
+</div>
+
+<div class="subsection">
+  <div class="subsection-title">Transaction 5 — Owner Requests a Payout</div>
+  <ol class="steps">
+    <li>As the hotel owner, navigate to <strong>Earnings</strong> — show the accumulated confirmed earnings.</li>
+    <li>Navigate to <strong>Request Payout</strong>. Fill in the amount, select payment method (GCash), and enter the account number. Submit.</li>
+    <li>A new document is created in <span class="coll">payoutrequests</span> with <code>status: "pending"</code>.</li>
+    <li>Log in as admin. Navigate to <strong>Manage Payouts</strong> — the new request appears. Click <strong>Approve</strong> and add a note.</li>
+    <li>Show the payout status updating to <code>approved</code> in both the admin view and the owner's payout history.</li>
+  </ol>
+  <div class="block block-narration">
+    <div class="block-label">Narration</div>
+    "The payout flow demonstrates a two-party transaction — the owner initiates it, and the admin processes it. Both sides see the same data from Firestore in real time, with no page-to-page data transfer needed beyond reading from the same collection."
+  </div>
+</div>
+
+<div class="subsection">
+  <div class="subsection-title">Transaction 6 — Customer Cancels a Booking</div>
+  <ol class="steps">
+    <li>Log in as the customer. Navigate to their dashboard. Find a confirmed booking with check-in more than 24 hours away.</li>
+    <li>Click <strong>Cancel Booking</strong>. Confirm the cancellation in the modal.</li>
+    <li>Show the booking status change to <span class="badge badge-cancelled">cancelled</span>.</li>
+    <li>Open Firestore — show the booking's status update and the corresponding earnings document's status changing to <code>voided</code>.</li>
+  </ol>
+  <div class="block block-narration">
+    <div class="block-label">Narration</div>
+    "Cancellation triggers two writes: the booking status is set to cancelled, and the associated earnings document is set to voided — ensuring the owner is not credited for a reservation that was never completed. If the check-in is within 24 hours, the cancel button is hidden entirely, preventing last-minute cancellations."
+  </div>
+</div>
+
+<!-- ─── SECTION 07 ─── -->
+<div class="section-header">
+  <div class="section-num">07</div>
+  <div class="section-info">
+    <div class="section-title">Database — Firestore Data Storage</div>
+    <div class="section-topics">Document structure &middot; Data entry &middot; Data manipulation &middot; Transaction processing</div>
+  </div>
+  <div class="section-timer">⏱ 18:30 – 22:00</div>
+</div>
+
+<div class="timestamp">18:30</div>
+<div class="block block-screen">
+  <div class="block-label">Screen</div>
+  Open the Firebase Console → Firestore Database. Navigate through the collections one by one.
+</div>
+<div class="block block-narration">
+  <div class="block-label">Narration</div>
+  "Let's now look at exactly how data is stored in Google Cloud Firestore. Unlike a relational SQL database — which stores data in rows and tables with foreign key joins — Firestore is document-based. Each record is a JSON-like document inside a named collection. Related data is linked by storing IDs — like <code>hotelId</code> or <code>custId</code> — inside the document. There are no joins. The PHP application resolves those relationships using individual document lookups."
+</div>
+
+<div class="subsection">
+  <div class="subsection-title">Data Entry — Customer Registration</div>
+  <div class="block block-screen">
+    <div class="block-label">Screen</div>
+    Open the <span class="coll">accounts</span> collection and then the <span class="coll">customers</span> collection. Show a matching pair of documents (same ID pattern).
+  </div>
+  <div class="block block-db">
+    <div class="block-label">Database — accounts/{id}</div>
+    <table class="db-table">
+      <thead><tr><th>Field</th><th>Type</th><th>Value / Notes</th></tr></thead>
+      <tbody>
+        <tr><td class="field-name">id</td><td class="field-type">integer</td><td class="field-desc">Auto-incremented from counters/accounts</td></tr>
+        <tr><td class="field-name">email</td><td class="field-type">string</td><td class="field-desc">"maria@example.com"</td></tr>
+        <tr><td class="field-name">password</td><td class="field-type">string</td><td class="field-desc">bcrypt hash — never stored in plain text</td></tr>
+        <tr><td class="field-name">role</td><td class="field-type">string</td><td class="field-desc">"customer" | "hotel_owner" | "admin"</td></tr>
+        <tr><td class="field-name">status</td><td class="field-type">string</td><td class="field-desc">"active" | "suspended"</td></tr>
+        <tr><td class="field-name">mustChangePassword</td><td class="field-type">boolean</td><td class="field-desc">true for newly created owner accounts</td></tr>
+        <tr><td class="field-name">createdAt</td><td class="field-type">string</td><td class="field-desc">ISO 8601 timestamp</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="block block-db">
+    <div class="block-label">Database — customers/{id}</div>
+    <table class="db-table">
+      <thead><tr><th>Field</th><th>Type</th><th>Value / Notes</th></tr></thead>
+      <tbody>
+        <tr><td class="field-name">id</td><td class="field-type">integer</td><td class="field-desc">Auto-incremented from counters/customers</td></tr>
+        <tr><td class="field-name">acctId</td><td class="field-type">integer</td><td class="field-desc">Foreign key → accounts.id</td></tr>
+        <tr><td class="field-name">firstName</td><td class="field-type">string</td><td class="field-desc">"Maria"</td></tr>
+        <tr><td class="field-name">lastName</td><td class="field-type">string</td><td class="field-desc">"Santos"</td></tr>
+        <tr><td class="field-name">phone</td><td class="field-type">string</td><td class="field-desc">"09XX-XXX-XXXX" format</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="block block-narration">
+    <div class="block-label">Narration</div>
+    "When a customer registers, two documents are written in sequence. First, an accounts document is created to store login credentials — the password is hashed with PHP's <code>password_hash()</code> using bcrypt before being stored. Then, a customers document is created with the profile information, storing the account ID as a reference. This separation follows the single-responsibility principle — the accounts collection owns authentication, the customers collection owns identity."
+  </div>
+</div>
+
+<div class="subsection">
+  <div class="subsection-title">Transaction Processing — Booking &amp; Payment</div>
+  <div class="block block-screen">
+    <div class="block-label">Screen</div>
+    Open the <span class="coll">bookings</span> collection. Show a confirmed booking document with all fields visible.
+  </div>
+  <div class="block block-db">
+    <div class="block-label">Database — bookings/{id}</div>
+    <table class="db-table">
+      <thead><tr><th>Field</th><th>Type</th><th>Value</th></tr></thead>
+      <tbody>
+        <tr><td class="field-name">custId</td><td class="field-type">integer</td><td class="field-desc">→ customers.id</td></tr>
+        <tr><td class="field-name">hotelId</td><td class="field-type">integer</td><td class="field-desc">→ hotels.id</td></tr>
+        <tr><td class="field-name">roomId</td><td class="field-type">integer</td><td class="field-desc">→ rooms.id</td></tr>
+        <tr><td class="field-name">checkIn</td><td class="field-type">string</td><td class="field-desc">"2026-06-01"</td></tr>
+        <tr><td class="field-name">checkOut</td><td class="field-type">string</td><td class="field-desc">"2026-06-03"</td></tr>
+        <tr><td class="field-name">guests</td><td class="field-type">integer</td><td class="field-desc">2</td></tr>
+        <tr><td class="field-name">totalPrice</td><td class="field-type">float</td><td class="field-desc">3600.00</td></tr>
+        <tr><td class="field-name">status</td><td class="field-type">string</td><td class="field-desc">"pending" → "confirmed" → "completed" | "cancelled"</td></tr>
+        <tr><td class="field-name">refCode</td><td class="field-type">string</td><td class="field-desc">Unique booking reference code</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="block block-db">
+    <div class="block-label">Database — earnings/{id} (created on payment)</div>
+    <table class="db-table">
+      <thead><tr><th>Field</th><th>Type</th><th>Value</th></tr></thead>
+      <tbody>
+        <tr><td class="field-name">bookId</td><td class="field-type">integer</td><td class="field-desc">→ bookings.id</td></tr>
+        <tr><td class="field-name">hotelId</td><td class="field-type">integer</td><td class="field-desc">→ hotels.id</td></tr>
+        <tr><td class="field-name">ownerId</td><td class="field-type">integer</td><td class="field-desc">→ accounts.id (hotel owner)</td></tr>
+        <tr><td class="field-name">totalAmount</td><td class="field-type">float</td><td class="field-desc">3600.00 (full booking price)</td></tr>
+        <tr><td class="field-name">ownerShare</td><td class="field-type">float</td><td class="field-desc">3060.00 (85%)</td></tr>
+        <tr><td class="field-name">platformFee</td><td class="field-type">float</td><td class="field-desc">540.00 (15%)</td></tr>
+        <tr><td class="field-name">status</td><td class="field-type">string</td><td class="field-desc">"pending" → "paid" | "voided"</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="block block-narration">
+    <div class="block-label">Narration</div>
+    "The earnings split is calculated automatically — there is no manual entry. When a payment is confirmed, the PHP code takes the booking's total price, multiplies by 0.85 for the owner share and 0.15 for the platform fee, and writes those values into the earnings document. If the booking is later cancelled, the earnings status is set to voided — meaning the owner is not credited for it when they calculate their available payout balance."
+  </div>
+</div>
+
+<div class="subsection">
+  <div class="subsection-title">Auto-Increment IDs — The Counters Collection</div>
+  <div class="block block-screen">
+    <div class="block-label">Screen</div>
+    Open the <span class="coll">counters</span> collection. Show documents for <code>bookings</code>, <code>accounts</code>, <code>hotels</code> — each with a single <code>next</code> field.
+  </div>
+  <div class="block block-narration">
+    <div class="block-label">Narration</div>
+    "Since Firestore doesn't have an equivalent to SQL's AUTO_INCREMENT, this application implements its own using a <code>counters</code> collection. Each document in <code>counters</code> is named after a collection and has a single field — <code>next</code> — which holds the next integer ID to assign. Before creating any new document, the system reads this counter, increments it, and uses the current value as the new document's ID. This preserves the integer ID behavior from the original MySQL design."
+  </div>
+</div>
+
+<!-- ─── SECTION 08 ─── -->
+<div class="section-header">
+  <div class="section-num">08</div>
+  <div class="section-info">
+    <div class="section-title">Source Code Walkthrough</div>
+    <div class="section-topics">Firestore REST client &middot; Auth &middot; Booking logic &middot; Cache layer &middot; Earnings split</div>
+  </div>
+  <div class="section-timer">⏱ 22:00 – 25:00</div>
+</div>
+
+<div class="timestamp">22:00</div>
+
+<div class="subsection">
+  <div class="subsection-title">1 — The Firestore REST Client (config/firestore.php)</div>
+  <div class="block block-screen">
+    <div class="block-label">Screen</div>
+    Open <code>config/firestore.php</code> in VS Code. Scroll to show the public API functions: <code>fs_get()</code>, <code>fs_query()</code>, <code>fs_insert()</code>, <code>fs_update()</code>, <code>fs_delete()</code>.
+  </div>
+  <div class="block block-narration">
+    <div class="block-label">Narration</div>
+    "This file is the heart of the application. Because PHP has no official Firestore SDK, this custom client communicates with Firestore's REST API directly over HTTPS using cURL. Every page that reads or writes data calls these five functions. The client handles OAuth2 token acquisition, JSON encoding and decoding of Firestore's wire format, and a two-level cache to minimize network calls."
+  </div>
+  <div class="block block-code">
+    <div class="block-label">Key Methods — config/firestore.php</div>
+<pre><span class="cm">// Read one document by integer ID</span>
+<span class="fn">fs_get</span>(<span class="str">'hotels'</span>, <span class="num">42</span>);           <span class="cm">// → array|null</span>
+
+<span class="cm">// Multi-condition query with optional sort &amp; limit</span>
+<span class="fn">fs_query</span>(<span class="str">'bookings'</span>, [
+    [<span class="str">'custId'</span>, <span class="op">'='</span>, <span class="num">7</span>],
+    [<span class="str">'status'</span>, <span class="op">'='</span>, <span class="str">'confirmed'</span>],
+], [[<span class="str">'createdAt'</span>, <span class="str">'DESC'</span>]], <span class="num">10</span>);
+
+<span class="cm">// Insert — auto-increments ID from counters collection</span>
+<span class="num">$id</span> = <span class="fn">fs_insert</span>(<span class="str">'bookings'</span>, [<span class="str">'custId'</span> => <span class="num">7</span>, <span class="str">'status'</span> => <span class="str">'pending'</span>, ...]);
+
+<span class="cm">// Partial update — only named fields are patched</span>
+<span class="fn">fs_update</span>(<span class="str">'bookings'</span>, <span class="num">$id</span>, [<span class="str">'status'</span> => <span class="str">'confirmed'</span>]);
+
+<span class="cm">// Delete a document</span>
+<span class="fn">fs_delete</span>(<span class="str">'reviews'</span>, <span class="num">$reviewId</span>);</pre>
+  </div>
+</div>
+
+<div class="subsection">
+  <div class="subsection-title">2 — Authentication (auth/login.php)</div>
+  <div class="block block-screen">
+    <div class="block-label">Screen</div>
+    Open <code>auth/login.php</code>. Show the POST handler — the Firestore query, password verification, and session setup.
+  </div>
+  <div class="block block-narration">
+    <div class="block-label">Narration</div>
+    "Authentication is entirely session-based. When a user submits the login form, the code queries the <code>accounts</code> collection for a document matching their email. It then runs PHP's <code>password_verify()</code> to check the submitted password against the stored bcrypt hash. On success, the role is read from the document and the appropriate session variables are set — <code>account_id</code> and <code>role</code>. Every protected page begins with a session check: if these variables are missing or the role doesn't match, the user is redirected to login."
+  </div>
+  <div class="block block-code">
+    <div class="block-label">Auth logic — auth/login.php</div>
+<pre><span class="kw">$acct</span> = <span class="fn">fs_find</span>(<span class="str">'accounts'</span>, [[<span class="str">'email'</span>, <span class="op">'='</span>, <span class="kw">$email</span>]]);
+
+<span class="kw">if</span> (!<span class="kw">$acct</span> || !<span class="fn">password_verify</span>(<span class="kw">$password</span>, <span class="kw">$acct</span>[<span class="str">'password'</span>])) {
+    <span class="cm">// Invalid credentials</span>
+    <span class="fn">header</span>(<span class="str">"Location: login.php?error=1"</span>); <span class="fn">exit</span>();
+}
+
+<span class="kw">$_SESSION</span>[<span class="str">'account_id'</span>] = <span class="kw">$acct</span>[<span class="str">'id'</span>];
+<span class="kw">$_SESSION</span>[<span class="str">'role'</span>]       = <span class="kw">$acct</span>[<span class="str">'role'</span>];
+
+<span class="cm">// Role-based redirect</span>
+<span class="kw">match</span>(<span class="kw">$acct</span>[<span class="str">'role'</span>]) {
+    <span class="str">'admin'</span>       => <span class="fn">header</span>(<span class="str">"Location: /admin/dashboard.php"</span>),
+    <span class="str">'hotel_owner'</span> => <span class="fn">header</span>(<span class="str">"Location: /owner/dashboard.php"</span>),
+    <span class="str">'customer'</span>    => <span class="fn">header</span>(<span class="str">"Location: /customer/dashboard.php"</span>),
+};</pre>
+  </div>
+</div>
+
+<div class="subsection">
+  <div class="subsection-title">3 — Booking &amp; Payment Flow (hotels/book.php)</div>
+  <div class="block block-screen">
+    <div class="block-label">Screen</div>
+    Open <code>hotels/book.php</code>. Show the POST handler — validation, booking insert, payment insert, earnings calculation.
+  </div>
+  <div class="block block-narration">
+    <div class="block-label">Narration</div>
+    "The booking creation code first validates all required fields — dates must not be in the past, check-out must be after check-in, and guest count must not exceed room capacity. It then calculates the total price from the number of nights and the room's nightly rate. On payment confirmation, three writes happen in sequence: the booking status is updated to confirmed, a payment document is created, and an earnings document is written with the eighty-five / fifteen split calculated in PHP."
+  </div>
+  <div class="block block-code">
+    <div class="block-label">Earnings split — hotels/payment.php (POST handler)</div>
+<pre><span class="kw">$total</span>      = <span class="kw">$booking</span>[<span class="str">'totalPrice'</span>];
+<span class="kw">$ownerShare</span> = <span class="fn">round</span>(<span class="kw">$total</span> * <span class="num">0.85</span>, <span class="num">2</span>);
+<span class="kw">$platFee</span>    = <span class="fn">round</span>(<span class="kw">$total</span> * <span class="num">0.15</span>, <span class="num">2</span>);
+
+<span class="cm">// 1. Confirm the booking</span>
+<span class="fn">fs_update</span>(<span class="str">'bookings'</span>, <span class="kw">$bookId</span>, [<span class="str">'status'</span> => <span class="str">'confirmed'</span>]);
+
+<span class="cm">// 2. Record payment</span>
+<span class="fn">fs_insert</span>(<span class="str">'payments'</span>, [
+    <span class="str">'bookId'</span> => <span class="kw">$bookId</span>, <span class="str">'amount'</span> => <span class="kw">$total</span>,
+    <span class="str">'method'</span> => <span class="kw">$method</span>, <span class="str">'status'</span> => <span class="str">'paid'</span>,
+]);
+
+<span class="cm">// 3. Create earnings record</span>
+<span class="fn">fs_insert</span>(<span class="str">'earnings'</span>, [
+    <span class="str">'bookId'</span>      => <span class="kw">$bookId</span>,
+    <span class="str">'hotelId'</span>     => <span class="kw">$hotel</span>[<span class="str">'id'</span>],
+    <span class="str">'ownerId'</span>     => <span class="kw">$hotel</span>[<span class="str">'ownerId'</span>],
+    <span class="str">'totalAmount'</span> => <span class="kw">$total</span>,
+    <span class="str">'ownerShare'</span>  => <span class="kw">$ownerShare</span>,   <span class="cm">// 85%</span>
+    <span class="str">'platformFee'</span> => <span class="kw">$platFee</span>,       <span class="cm">// 15%</span>
+    <span class="str">'status'</span>      => <span class="str">'pending'</span>,
+]);</pre>
+  </div>
+</div>
+
+<div class="subsection">
+  <div class="subsection-title">4 — Performance: Two-Level Cache</div>
+  <div class="block block-screen">
+    <div class="block-label">Screen</div>
+    Open <code>config/firestore.php</code>. Scroll to the cache layer section — show <code>_fs_cache_get()</code> and <code>_fs_cache_set()</code>.
+  </div>
+  <div class="block block-narration">
+    <div class="block-label">Narration</div>
+    "Every Firestore query passes through a two-level cache before hitting the network. The first level is a static PHP array — it lives in memory for the current request, giving zero-millisecond lookups when the same data is needed multiple times on the same page. The second level is a disk cache — JSON files stored in the <code>cache/</code> directory. These survive across page loads, meaning a collection like hotels, which rarely changes, is served from disk in about one millisecond instead of making a round-trip to Google's servers.
+    <br><br>
+    Cache TTLs are set per-collection — ten minutes for hotels and accounts, five minutes for rooms, two minutes for bookings. Every write operation immediately busts the cache for that collection, so data is always consistent after any change."
+  </div>
+</div>
+
+<div class="timestamp">24:30</div>
+<div class="block block-narration">
+  <div class="block-label">Narration</div>
+  "That concludes the full walkthrough of the RedDoorz Hotel Booking Platform. We covered the system architecture, all three actor dashboards with their unique workflows, six complete live transactions that write real data to Firestore, how data is structured and manipulated in the database, and the key source code that drives every interaction.
+  <br><br>
+  RedDoorz demonstrates a complete full-stack web application — from session-based authentication and role-based access control, to a custom Firestore REST client, automated earnings splitting, cascading status updates, and a performance cache layer — all built in plain PHP without a single framework or SQL query.
+  <br><br>
+  Thank you for watching."
+</div>
+<div class="block block-screen">
+  <div class="block-label">Screen</div>
+  Return to the RedDoorz landing page. Let the hero section sit on screen for 3–5 seconds as the narration ends. Fade to black.
+</div>
+
+</div><!-- /page -->
+</body>
+</html>
