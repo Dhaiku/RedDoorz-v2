@@ -19,6 +19,60 @@ if (isset($_POST['login'])) {
         $_SESSION['role']       = $account['role'];
         $_SESSION['email']      = $account['email'];
 
+        // ── Firebase UID sync ────────────────────────────────────────────────
+        // If this account doesn't yet have a firebaseUid (pre-migration accounts),
+        // lazily write the firebaseUid-keyed mirror docs so Android can find them.
+        // This runs at most once per account (no-op once firebaseUid is set).
+        if (empty($account['firebaseUid'])) {
+            try {
+                require_once __DIR__ . '/../config/firebase.php';
+                $fbAuth = getFirebaseAuth();
+                // Try to get or create the Firebase Auth user
+                try {
+                    $fbUser = $fbAuth->getUserByEmail($email);
+                } catch (\Throwable $e) {
+                    // User not in Firebase Auth yet — create with temp password
+                    // They'll be prompted to change it on Android
+                    $fbUser = $fbAuth->createUser([
+                        'email'    => $email,
+                        'password' => 'RedDoorz2024!',
+                        'emailVerified' => false,
+                    ]);
+                }
+                $uid = $fbUser->uid;
+                $id  = (int)$account['id'];
+
+                // Update accounts doc: add firebaseUid
+                fs_update('accounts', $id, ['firebaseUid' => $uid, 'mustChangePassword' => true]);
+
+                // Write accounts mirror doc keyed by Firebase UID
+                global $_FS_BASE_URL;
+                _fs_req('PATCH', "$_FS_BASE_URL/accounts/$uid", _fs_array_to_doc([
+                    'email'              => $email,
+                    'role'               => $account['role'],
+                    'status'             => $account['status'] ?? 'active',
+                    'mustChangePassword' => true,
+                    'firebaseUid'        => $uid,
+                    'createdAt'          => $account['createdAt'] ?? date('c'),
+                ]));
+
+                // Write customers mirror doc keyed by Firebase UID
+                $cust = fs_find('customers', [['acctId', '=', $id]]);
+                if ($cust) {
+                    _fs_req('PATCH', "$_FS_BASE_URL/customers/$uid", _fs_array_to_doc([
+                        'acctId'    => $uid,
+                        'firstName' => $cust['firstName'] ?? '',
+                        'lastName'  => $cust['lastName']  ?? '',
+                        'phone'     => $cust['phone']     ?? '',
+                    ]));
+                }
+            } catch (\Throwable $e) {
+                // Non-fatal — web login continues even if Firebase sync fails
+                error_log('Firebase UID sync failed for ' . $email . ': ' . $e->getMessage());
+            }
+        }
+        // ── End Firebase UID sync ─────────────────────────────────────────────
+
         if ($account['role'] === 'admin') {
             $_SESSION['display_name'] = 'Admin';
             if (!empty($account['mustChangePassword'])) {

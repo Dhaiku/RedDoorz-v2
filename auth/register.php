@@ -47,6 +47,42 @@ if (isset($_POST['register'])) {
                 'lastName'  => $lname,
                 'phone'     => $phone,
             ]);
+
+            // ── Create Firebase Auth user + mirror docs for Android ──────────
+            try {
+                require_once __DIR__ . '/../config/firebase.php';
+                $fbUser = getFirebaseAuth()->createUser([
+                    'email'         => $email,
+                    'password'      => $password,
+                    'emailVerified' => false,
+                ]);
+                $uid = $fbUser->uid;
+
+                // Update accounts doc with firebaseUid
+                fs_update('accounts', $acctId, ['firebaseUid' => $uid]);
+
+                // Write firebaseUid-keyed mirror docs (Android lookup path)
+                global $_FS_BASE_URL;
+                _fs_req('PATCH', "$_FS_BASE_URL/accounts/$uid", _fs_array_to_doc([
+                    'email'              => $email,
+                    'role'               => 'customer',
+                    'status'             => 'active',
+                    'mustChangePassword' => false,
+                    'firebaseUid'        => $uid,
+                    'createdAt'          => date('c'),
+                ]));
+                _fs_req('PATCH', "$_FS_BASE_URL/customers/$uid", _fs_array_to_doc([
+                    'acctId'    => $uid,
+                    'firstName' => $fname,
+                    'lastName'  => $lname,
+                    'phone'     => $phone,
+                ]));
+            } catch (\Throwable $e) {
+                // Non-fatal — web registration succeeded even if Firebase sync fails
+                error_log('Firebase Auth create failed for ' . $email . ': ' . $e->getMessage());
+            }
+            // ── End Firebase Auth sync ────────────────────────────────────────
+
             $success = "Account created successfully. You can now log in.";
         }
     }

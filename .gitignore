@@ -12,6 +12,7 @@ skills-lock.json
 firebase-service-account.json
 serviceAccountKey.json
 google-services-admin.json
+google-services.json
 
 # Composer vendor
 vendor/
@@ -19,3 +20,7 @@ composer.lock
 
 cache/*
 !cache/.gitkeep
+
+# One-time utility/debug scripts — never commit
+fix_owner_account.php
+check_owner_accounts.php

@@ -1,0 +1,99 @@
+rules_version = '2';
+//
+// RedDoorz Firestore Security Rules
+//
+// Deploy via Firebase Console → Firestore → Rules tab,
+// or with:  firebase deploy --only firestore:rules
+//
+// Logic:
+//  - Authenticated users can read their own account + customer docs
+//  - Hotels and rooms are publicly readable (guests can browse)
+//  - Bookings: users can read/write their own only
+//  - Admin/owner write rules enforced server-side (PHP) — Android read-only for those
+//  - Admin SDK (PHP backend) bypasses all rules automatically
+//
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Helper functions ──────────────────────────────────────────────────────
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    // ── accounts ──────────────────────────────────────────────────────────────
+    // Doc ID = Firebase UID (mirror docs written by Android/PHP)
+    match /accounts/{uid} {
+      // Users can read their own account
+      allow read: if isOwner(uid);
+      // Users can update only mustChangePassword=false (change-password flow)
+      allow update: if isOwner(uid)
+                    && request.resource.data.diff(resource.data).affectedKeys()
+                       .hasOnly(['mustChangePassword', 'updatedAt']);
+      // Creation allowed for new registrations
+      allow create: if isOwner(uid);
+    }
+
+    // ── customers ─────────────────────────────────────────────────────────────
+    // Doc ID = Firebase UID
+    match /customers/{uid} {
+      allow read, write: if isOwner(uid);
+    }
+
+    // ── hotels ────────────────────────────────────────────────────────────────
+    // Any signed-in user (or even public) can browse hotels
+    match /hotels/{hotelId} {
+      allow read: if true;          // public browsing
+      allow write: if false;        // PHP admin/owner only (Admin SDK bypasses)
+    }
+
+    // ── rooms ─────────────────────────────────────────────────────────────────
+    match /rooms/{roomId} {
+      allow read: if true;
+      allow write: if false;        // PHP only
+    }
+
+    // ── bookings ──────────────────────────────────────────────────────────────
+    // Users can read and create their own bookings
+    match /bookings/{bookingId} {
+      allow read: if isSignedIn()
+                  && (resource == null || resource.data.custId == request.auth.uid);
+      allow create: if isSignedIn()
+                    && request.resource.data.custId == request.auth.uid;
+      // Status updates (confirm/cancel) allowed by the booking owner
+      allow update: if isSignedIn()
+                    && resource.data.custId == request.auth.uid
+                    && request.resource.data.diff(resource.data).affectedKeys()
+                       .hasOnly(['status', 'updatedAt']);
+    }
+
+    // ── payments ──────────────────────────────────────────────────────────────
+    match /payments/{paymentId} {
+      allow read: if isSignedIn();
+      allow write: if false;        // PHP payment gateway only
+    }
+
+    // ── reviews ───────────────────────────────────────────────────────────────
+    match /reviews/{reviewId} {
+      allow read: if true;          // public
+      allow create: if isSignedIn()
+                    && request.resource.data.custId == request.auth.uid;
+      allow update, delete: if isSignedIn()
+                             && resource.data.custId == request.auth.uid;
+    }
+
+    // ── counters (internal — PHP only) ───────────────────────────────────────
+    match /counters/{doc} {
+      allow read, write: if false;  // Admin SDK only
+    }
+
+    // ── all other collections: deny by default ────────────────────────────────
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
